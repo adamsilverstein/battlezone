@@ -12,21 +12,19 @@
  * Nothing here touches the DOM: the only outside world is the injected
  * AudioContext factory.
  *
- * Three things in the reference's audible checklist cannot be driven from the
- * current contract in `src/game/types.ts`:
+ * Every sound in the reference's audible checklist has a trigger: the world
+ * reports the radar blip refresh and the 100,000-point / high-score fanfare as
+ * events, and carries the live missile's distance in the snapshot.
  *
- * - The nine-note 1812 Overture fanfare (POKEY $80) fires at 100,000 points and
- *   at high-score entry. No `GameEvent` reports either, so `sounds/fanfare.ts`
- *   is implemented and tested but nothing triggers it yet.
- * - The radar ping fires as the sweep passes an enemy blip. The snapshot has no
- *   radar angle, so we ping on the sweep period while `enemyInRange` holds.
- * - The missile buzz is attenuated by the missile's distance. The snapshot has
- *   no distance, so the buzz sits at a fixed mid volume.
+ * `AudioSnapshot.enemyInRange` deliberately drives no sound of its own. The
+ * reference is explicit that the ROM has no dedicated in-range beep: what players
+ * remember as one is the three-boop `enemyInRange` alert plus the recurring
+ * `radarPing`.
  *
  * Attract mode is hard-muted in the original. `engineRunning` is false outside
  * play, which stops every continuous sound, but one-shots still sound so the
- * death explosion is heard; the game state machine is expected to call
- * `setMuted(true)` for the attract phases.
+ * death explosion is heard; the game state machine hard-mutes the attract
+ * phases through `setMuted`.
  */
 
 import type { AudioSnapshot, GameEvent } from '../game/types';
@@ -37,6 +35,7 @@ import { playEnemyAlert } from './sounds/enemyAlert';
 import { playExplosion } from './sounds/explosion';
 import { playExtraLife } from './sounds/extraLife';
 import { playMerp } from './sounds/merp';
+import { playFanfare } from './sounds/fanfare';
 import { playRadarPing } from './sounds/radarPing';
 import { playSaucerHit } from './sounds/saucerHit';
 import { startEngine, type EngineVoice } from './sounds/engine';
@@ -55,20 +54,21 @@ export interface AudioSystem {
 /** Headroom so several voices at once do not clip. */
 const MASTER_LEVEL = 0.7;
 
-/**
- * The radar sweep turns $0b per game frame, one revolution in 23 game frames at
- * 15.625 Hz, and the ping fires as the sweep passes an enemy blip (reference
- * section 1, "Radar"). The audio snapshot has no radar angle, so we ping on that
- * period for as long as an enemy is in range.
- */
-const RADAR_SWEEP_SECONDS = 23 / 15.625;
+/** Missiles spawn at the far distance ($5fff), which is where the buzz starts. */
+const FAR_SPAWN_DISTANCE = 0x5fff;
 
 /**
- * The original scales the buzz by the missile's distance (nearer is louder).
- * `AudioSnapshot` carries no distance, so the buzz sits at mid volume until it
- * does.
+ * AUDC3/AUDC4 come from the missile's distance high byte: shifted right 3,
+ * masked to 0-15 and inverted, so nearer is louder, and silent once bit 7 of the
+ * high byte is set, meaning too far to hear (reference section 5, "Missile
+ * buzz"). At the far spawn distance that lands on volume 4; at zero distance, 15.
  */
-const MISSILE_VOLUME = 9;
+function buzzVolume(distance: number | null): number {
+  if (distance === null) return 0;
+  const high = Math.floor(Math.max(0, distance) / 256);
+  if ((high & 0x80) !== 0) return 0;
+  return 15 - ((high >> 3) & 0x0f);
+}
 
 /**
  * One slot per one-shot circuit: POKEY channels 1 and 2 and the two discrete
@@ -99,7 +99,6 @@ export function createAudioSystem(
   let engine: EngineVoice | null = null;
   let hover: SaucerHoverVoice | null = null;
   let buzz: MissileBuzzVoice | null = null;
-  let nextPingTime = 0;
 
   /** The synth, or null when muted, locked or the context has gone away. */
   function ready(): Synth | null {
@@ -116,18 +115,26 @@ export function createAudioSystem(
     return voice !== undefined && voice.endTime > at;
   }
 
-  /** Starts a sound on its slot, cutting off whatever the slot was playing. */
-  function play(slot: Slot, make: (synth: Synth, at: number) => Voice, at?: number): Voice | null {
+  /**
+   * Starts a sound on its slot (or slots, for the two-channel fanfare), cutting
+   * off whatever those slots were playing.
+   */
+  function play(
+    slot: Slot | readonly Slot[],
+    make: (synth: Synth, at: number) => Voice,
+    at?: number,
+  ): Voice | null {
     const active = ready();
     if (!active) return null;
     const start = at ?? now();
+    const claimed = typeof slot === 'string' ? [slot] : slot;
     try {
-      slots.get(slot)?.stop(start);
+      for (const claim of claimed) slots.get(claim)?.stop(start);
       const voice = make(active, start);
-      slots.set(slot, voice);
+      for (const claim of claimed) slots.set(claim, voice);
       // The saucer siren is the lowest priority on channel 1 and pauses while
       // anything else uses the channel.
-      if (slot === 'pokey1' && hover && Number.isFinite(voice.endTime)) {
+      if (claimed.includes('pokey1') && hover && Number.isFinite(voice.endTime)) {
         hover.suppress(start, voice.endTime);
       }
       return voice;
@@ -166,14 +173,13 @@ export function createAudioSystem(
     stopEngine(at);
     stopHover(at);
     stopBuzz(at);
-    nextPingTime = 0;
   }
 
-  function startBuzz(at: number): void {
+  function startBuzz(at: number, volume: number): void {
     const active = ready();
     if (!active || buzz) return;
     try {
-      buzz = startMissileBuzz(active, at, MISSILE_VOLUME);
+      buzz = startMissileBuzz(active, at, volume);
     } catch {
       buzz = null;
     }
@@ -236,13 +242,22 @@ export function createAudioSystem(
           stopBuzz(now());
           break;
         case 'missileLaunched':
-          startBuzz(now());
+          // The frequencies are fixed at creation; update() takes the volume
+          // from the missile's distance from the next frame on.
+          startBuzz(now(), buzzVolume(FAR_SPAWN_DISTANCE));
           break;
         case 'enemyInRange':
           play('pokey2', playEnemyAlert);
           break;
         case 'extraLife':
           play('pokey2', playExtraLife);
+          break;
+        case 'radarPing':
+          play('pokey2', playRadarPing);
+          break;
+        case 'fanfare':
+          // The fanfare is two voices at once, so it holds both channels.
+          play(['pokey1', 'pokey2'], playFanfare);
           break;
         case 'motionBlocked':
           playCollision();
@@ -268,17 +283,13 @@ export function createAudioSystem(
           stopEngine(at);
         }
 
-        if (snapshot.enemyInRange) {
-          if (at >= nextPingTime) {
-            play('pokey2', playRadarPing, at);
-            nextPingTime = at + RADAR_SWEEP_SECONDS;
-          }
+        if (snapshot.missileActive) {
+          const volume = buzzVolume(snapshot.missileDistance);
+          startBuzz(at, volume);
+          buzz?.setVolume(volume, at);
         } else {
-          nextPingTime = 0;
+          stopBuzz(at);
         }
-
-        if (snapshot.missileActive) startBuzz(at);
-        else stopBuzz(at);
 
         if (snapshot.saucerActive) hover ??= startSaucerHover(active, at);
         else stopHover(at);
@@ -287,6 +298,7 @@ export function createAudioSystem(
       }
     },
 
+    // Attract mode's hard mute is the state machine's call; nothing here infers it.
     setMuted(m: boolean): void {
       muted = m;
       if (!ctx || !master) return;

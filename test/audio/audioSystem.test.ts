@@ -1,59 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import {
-  FakeAudioContext,
-  FakeGainNode,
-  FakeOscillatorNode,
-  asAudioContext,
-} from './fakeAudioContext';
-import { createAudioSystem, type AudioSystem } from '../../src/audio/audioSystem';
-import type { AudioSnapshot } from '../../src/game/types';
+import type { FakeAudioContext } from './fakeAudioContext';
+import { createAudioSystem } from '../../src/audio/audioSystem';
 import { LOUD_EXPLOSION_SECONDS, SOFT_EXPLOSION_SECONDS } from '../../src/audio/sounds/explosion';
-
-const SILENT: AudioSnapshot = {
-  engineRunning: false,
-  moving: false,
-  enemyInRange: false,
-  missileActive: false,
-  saucerActive: false,
-};
-
-const PLAYING: AudioSnapshot = { ...SILENT, engineRunning: true };
-
-interface Harness {
-  fake: FakeAudioContext;
-  audio: AudioSystem;
-  factoryCalls: () => number;
-}
-
-function harness(): Harness {
-  const fake = new FakeAudioContext();
-  let calls = 0;
-  const audio = createAudioSystem(() => {
-    calls += 1;
-    return asAudioContext(fake);
-  });
-  return { fake, audio, factoryCalls: () => calls };
-}
-
-async function unlocked(): Promise<Harness> {
-  const h = harness();
-  await h.audio.unlock();
-  return h;
-}
-
-function oscillators(fake: FakeAudioContext): FakeOscillatorNode[] {
-  return fake.nodes.filter((node): node is FakeOscillatorNode => {
-    return node instanceof FakeOscillatorNode;
-  });
-}
-
-/** Longest voice duration scheduled on any gain, used to tell loud from soft. */
-function sourceDurations(fake: FakeAudioContext): number[] {
-  return fake
-    .sources()
-    .filter((source) => source.startTime !== null && source.stopTime !== null)
-    .map((source) => (source.stopTime as number) - (source.startTime as number));
-}
+import {
+  PLAYING,
+  gains,
+  harness,
+  oscillators,
+  sourceDurations,
+  unlocked,
+} from './audioSystemHarness';
 
 describe('before unlock', () => {
   it('is inert: no context is created and nothing throws', () => {
@@ -76,7 +32,7 @@ describe('unlock', () => {
     expect(factoryCalls()).toBe(1);
     expect(fake.resumeCalls).toBe(1);
     expect(fake.state).toBe('running');
-    const master = fake.nodes.find((node): node is FakeGainNode => node instanceof FakeGainNode);
+    const master = gains(fake)[0];
     expect(master?.outputs).toEqual([fake.destination]);
     expect(master?.gain.value).toBeGreaterThan(0);
 
@@ -101,11 +57,7 @@ describe('one-shot events', () => {
     soft.audio.handle({ type: 'enemyFired' });
 
     const peak = (fake: FakeAudioContext): number =>
-      Math.max(
-        ...fake.nodes
-          .filter((node): node is FakeGainNode => node instanceof FakeGainNode)
-          .flatMap((gain) => gain.gain.changes.map((change) => change.value)),
-      );
+      Math.max(...gains(fake).flatMap((gain) => gain.gain.changes.map((change) => change.value)));
     expect(peak(loud.fake)).toBeGreaterThan(peak(soft.fake));
     expect(loud.fake.nodesOfKind('bufferSource')).toHaveLength(1);
   });
@@ -139,7 +91,7 @@ describe('one-shot events', () => {
 
   it('silences the missile buzz when the missile kills the player', async () => {
     const { fake, audio } = await unlocked();
-    audio.update({ ...PLAYING, missileActive: true });
+    audio.update({ ...PLAYING, missileActive: true, missileDistance: 4000 });
     const buzzSources = fake.activeSources(0).length;
     expect(buzzSources).toBeGreaterThan(0);
 
@@ -164,8 +116,7 @@ describe('one-shot events', () => {
     const { fake, audio } = await unlocked();
     audio.handle({ type: 'extraLife' });
 
-    const gains = fake.nodes.filter((node): node is FakeGainNode => node instanceof FakeGainNode);
-    const beeps = gains.flatMap((gain) => gain.gain.scheduledValues().filter((v) => v > 0));
+    const beeps = gains(fake).flatMap((gain) => gain.gain.scheduledValues().filter((v) => v > 0));
     expect(beeps).toHaveLength(4);
   });
 
@@ -190,6 +141,38 @@ describe('one-shot events', () => {
     expect(oscillators(fake).length).toBeGreaterThan(afterFirst);
   });
 
+  it('pings the radar when the world refreshes a blip', async () => {
+    const { fake, audio } = await unlocked();
+
+    audio.handle({ type: 'radarPing' });
+    const [ping] = oscillators(fake);
+    expect(ping?.frequency.scheduledValues()).toHaveLength(1);
+    expect(ping?.stopTime).toBeCloseTo(16 / 250, 9);
+
+    // Every refresh pings again, and the alert shares the channel, so a ping
+    // cuts the boops off exactly as the original does.
+    audio.handle({ type: 'enemyInRange' });
+    fake.advance(0.05);
+    audio.handle({ type: 'radarPing' });
+    const alert = oscillators(fake).find((osc) => osc.frequency.changes.length === 72);
+    expect(alert?.stopTime).toBe(0.05);
+    expect(oscillators(fake)).toHaveLength(3);
+  });
+
+  it('plays the fanfare on both channels at 100K and high-score entry', async () => {
+    const { fake, audio } = await unlocked();
+    audio.handle({ type: 'fanfare' });
+
+    const voices = oscillators(fake);
+    expect(voices).toHaveLength(2);
+    expect(voices.map((osc) => osc.frequency.scheduledValues().length)).toEqual([13, 13]);
+
+    // It holds channels 1 and 2, so the next channel-2 sound cuts it off.
+    fake.advance(0.1);
+    audio.handle({ type: 'radarPing' });
+    expect(voices.every((osc) => osc.stopTime === 0.1)).toBe(true);
+  });
+
   it('stays silent for events the original has no sound for', async () => {
     const { fake, audio } = await unlocked();
     const before = fake.nodes.length;
@@ -200,143 +183,5 @@ describe('one-shot events', () => {
     audio.handle({ type: 'saucerLeft' });
 
     expect(fake.nodes.length).toBe(before);
-  });
-});
-
-describe('continuous sounds', () => {
-  it('runs the engine only while a game is being played', async () => {
-    const { fake, audio } = await unlocked();
-
-    audio.update(PLAYING);
-    const running = fake.activeSources(0).length;
-    expect(running).toBe(3);
-
-    audio.update(PLAYING);
-    expect(fake.activeSources(0)).toHaveLength(running);
-
-    fake.advance(1);
-    audio.update(SILENT);
-    expect(fake.activeSources(1)).toHaveLength(0);
-  });
-
-  it('revs the engine up when the treads engage and back down at rest', async () => {
-    const { fake, audio } = await unlocked();
-    audio.update(PLAYING);
-    const [low] = oscillators(fake);
-    const idle = low?.frequency.value as number;
-
-    fake.advance(0.064);
-    audio.update({ ...PLAYING, moving: true });
-    expect(low?.frequency.changes.at(-1)?.value).toBeGreaterThan(idle);
-
-    fake.advance(0.064);
-    audio.update(PLAYING);
-    expect(low?.frequency.changes.at(-1)?.value).toBeCloseTo(idle, 6);
-  });
-
-  it('pings once per radar sweep while an enemy is in range', async () => {
-    const { fake, audio } = await unlocked();
-    const inRange = { ...PLAYING, enemyInRange: true };
-
-    audio.update(inRange);
-    const afterFirst = oscillators(fake).length;
-
-    fake.advance(0.5);
-    audio.update(inRange);
-    expect(oscillators(fake)).toHaveLength(afterFirst);
-
-    // One revolution is 23 game frames at 15.625 Hz.
-    fake.advance(23 / 15.625);
-    audio.update(inRange);
-    expect(oscillators(fake).length).toBe(afterFirst + 1);
-
-    // Out of range, then back in: the next ping is immediate.
-    fake.advance(0.1);
-    audio.update(PLAYING);
-    audio.update(inRange);
-    expect(oscillators(fake).length).toBe(afterFirst + 2);
-  });
-
-  it('buzzes while a missile is alive and stops when it is gone', async () => {
-    const { fake, audio } = await unlocked();
-
-    audio.update({ ...PLAYING, missileActive: true });
-    // Two square oscillators for the buzz, on top of the engine's sawtooths.
-    const buzz = oscillators(fake).filter((osc) => osc.type === 'square');
-    expect(buzz).toHaveLength(2);
-
-    fake.advance(1);
-    audio.update({ ...PLAYING, missileActive: true });
-    expect(oscillators(fake).filter((osc) => osc.type === 'square')).toHaveLength(2);
-
-    audio.update(PLAYING);
-    expect(buzz.every((osc) => osc.stopTime !== null)).toBe(true);
-  });
-
-  it('hovers while a saucer is alive and pauses for channel-1 effects', async () => {
-    const { fake, audio } = await unlocked();
-    audio.update({ ...PLAYING, saucerActive: true });
-
-    // A square carrier plus its triangle LFO, on top of the engine's sawtooths.
-    const hover = oscillators(fake).filter((osc) => osc.type !== 'sawtooth');
-    expect(hover.map((osc) => osc.type)).toEqual(['square', 'triangle']);
-    const output = fake.nodes.find(
-      (node): node is FakeGainNode => node instanceof FakeGainNode && node.gain.value > 0,
-    );
-    expect(output).toBeDefined();
-
-    // Ramming a block takes channel 1, so the siren drops out and comes back.
-    fake.advance(1);
-    audio.handle({ type: 'motionBlocked' });
-    const suppressions = fake.nodes
-      .filter((node): node is FakeGainNode => node instanceof FakeGainNode)
-      .flatMap((gain) => gain.gain.changes)
-      .filter((change) => change.time === 1 && change.value === 0);
-    expect(suppressions).toHaveLength(1);
-
-    audio.update(PLAYING);
-    expect(hover.every((osc) => osc.stopTime !== null)).toBe(true);
-  });
-});
-
-describe('muting', () => {
-  it('drops the master gain, stops everything and recovers', async () => {
-    const { fake, audio } = await unlocked();
-    audio.update({ ...PLAYING, saucerActive: true, missileActive: true });
-    expect(fake.activeSources(0).length).toBeGreaterThan(0);
-
-    fake.advance(1);
-    audio.setMuted(true);
-    const master = fake.nodes.find((node): node is FakeGainNode => node instanceof FakeGainNode);
-    expect(master?.gain.value).toBe(0);
-    expect(fake.activeSources(1)).toHaveLength(0);
-
-    // Muted means silent, whatever happens in the game.
-    const before = fake.nodes.length;
-    audio.handle({ type: 'playerFired' });
-    audio.update(PLAYING);
-    expect(fake.nodes.length).toBe(before);
-
-    audio.setMuted(false);
-    expect(master?.gain.value).toBeGreaterThan(0);
-    audio.update(PLAYING);
-    expect(fake.activeSources(1).length).toBeGreaterThan(0);
-  });
-});
-
-describe('a closed context', () => {
-  it('never throws', async () => {
-    const { fake, audio } = await unlocked();
-    audio.update(PLAYING);
-    await fake.close();
-
-    expect(() => {
-      audio.handle({ type: 'playerFired' });
-      audio.handle({ type: 'motionBlocked' });
-      audio.update({ ...PLAYING, enemyInRange: true, missileActive: true, saucerActive: true });
-      audio.update(SILENT);
-      audio.setMuted(true);
-    }).not.toThrow();
-    await expect(audio.unlock()).resolves.toBeUndefined();
   });
 });
