@@ -173,6 +173,16 @@ describe('one-shot events', () => {
     expect(voices.every((osc) => osc.stopTime === 0.1)).toBe(true);
   });
 
+  it('lets a collision interrupt the fanfare on channel 1', async () => {
+    const { fake, audio } = await unlocked();
+    audio.handle({ type: 'fanfare' });
+    const [channel1] = oscillators(fake);
+
+    fake.advance(0.2);
+    audio.handle({ type: 'motionBlocked' });
+    expect(channel1?.stopTime).toBe(0.2);
+  });
+
   it('stays silent for events the original has no sound for', async () => {
     const { fake, audio } = await unlocked();
     const before = fake.nodes.length;

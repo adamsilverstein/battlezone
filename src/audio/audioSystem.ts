@@ -99,6 +99,8 @@ export function createAudioSystem(
   let engine: EngineVoice | null = null;
   let hover: SaucerHoverVoice | null = null;
   let buzz: MissileBuzzVoice | null = null;
+  /** End of the current collision warble, so grinding a block cannot retrigger it. */
+  let warbleEndsAt = 0;
 
   /** The synth, or null when muted, locked or the context has gone away. */
   function ready(): Synth | null {
@@ -108,11 +110,6 @@ export function createAudioSystem(
 
   function now(): number {
     return ctx ? ctx.currentTime : 0;
-  }
-
-  function isBusy(slot: Slot, at: number): boolean {
-    const voice = slots.get(slot);
-    return voice !== undefined && voice.endTime > at;
   }
 
   /**
@@ -173,6 +170,7 @@ export function createAudioSystem(
     stopEngine(at);
     stopHover(at);
     stopBuzz(at);
+    warbleEndsAt = 0;
   }
 
   function startBuzz(at: number, volume: number): void {
@@ -185,12 +183,20 @@ export function createAudioSystem(
     }
   }
 
-  /** The collision warble, with the "merp" queued behind it on channel 2. */
+  /**
+   * The collision warble, with the "merp" queued behind it on channel 2. The
+   * world reports `motionBlocked` for as long as the tank is against a block, so
+   * the warble waits for the previous one to finish rather than restarting every
+   * tick. Anything else holding channel 1 is fair game to interrupt: the ROM has
+   * no priority handling there beyond the saucer.
+   */
   function playCollision(): void {
     const at = now();
-    if (isBusy('pokey1', at)) return;
+    if (at < warbleEndsAt) return;
     const warble = play('pokey1', playCollisionWarble, at);
-    if (warble) play('pokey2', playMerp, warble.endTime);
+    if (!warble) return;
+    warbleEndsAt = warble.endTime;
+    play('pokey2', playMerp, warble.endTime);
   }
 
   return {
