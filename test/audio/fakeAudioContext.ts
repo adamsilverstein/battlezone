@@ -67,6 +67,8 @@ export type FakeNodeKind = 'oscillator' | 'gain' | 'biquad' | 'bufferSource' | '
 
 export class FakeAudioNode {
   readonly outputs: FakeAudioNode[] = [];
+  /** Modulation targets, i.e. connections made to an AudioParam. */
+  readonly paramOutputs: FakeAudioParam[] = [];
   disconnectCalls = 0;
 
   constructor(
@@ -76,14 +78,16 @@ export class FakeAudioNode {
     context.nodes.push(this);
   }
 
-  connect<T extends FakeAudioNode>(destination: T): T {
-    this.outputs.push(destination);
+  connect<T extends FakeAudioNode | FakeAudioParam>(destination: T): T {
+    if (destination instanceof FakeAudioParam) this.paramOutputs.push(destination);
+    else this.outputs.push(destination);
     return destination;
   }
 
   disconnect(): void {
     this.disconnectCalls += 1;
     this.outputs.length = 0;
+    this.paramOutputs.length = 0;
   }
 
   /** True when this node reaches the target by following connections. */
