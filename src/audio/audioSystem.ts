@@ -70,7 +70,11 @@ const RADAR_SWEEP_SECONDS = 23 / 15.625;
  */
 const MISSILE_VOLUME = 9;
 
-/** One slot per sound circuit in the original. */
+/**
+ * One slot per one-shot circuit: POKEY channels 1 and 2 and the two discrete
+ * one-shots. The continuous voices - the engine, the saucer siren and the
+ * missile buzz on POKEY channels 3 and 4 - are held on their own.
+ */
 type Slot = 'pokey1' | 'pokey2' | 'cannon' | 'explosion';
 
 function defaultContextFactory(): AudioContext {
