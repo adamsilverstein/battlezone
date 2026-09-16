@@ -73,10 +73,17 @@ Deterministic simulation, separate from rendering and I/O:
                VectorDisplay (canvas)
 ```
 
-- **Fixed timestep.** The simulation advances in fixed ticks
-  (`TICK_HZ`, taken from the original's frame rate in `constants.ts`).
-  Rendering runs on `requestAnimationFrame` and draws the latest world
-  state. No interpolation; the original did not interpolate either.
+- **Fixed timestep.** The simulation advances in fixed ticks at the
+  original's game-logic rate, `TICK_HZ = 15.625` (250 Hz NMI / 16, see
+  `docs/reference/original-game.md` section 7). Every per-tick constant
+  in the original is per 1/15.625 s frame, so the constants drop in
+  unchanged. Rendering runs on `requestAnimationFrame` and interpolates
+  positions and headings between the previous and current tick (the loop
+  passes `alpha` in [0,1)). Interpolation is a renderer concern only: the
+  renderer snapshots transforms whenever `world.tick` changes; the
+  simulation never stores render state. (The original redrew the same
+  vector list 2.7 times per logic frame; smoothing is the one concession
+  to modern displays and does not change gameplay.)
 - **Determinism.** `World.update` takes a seeded random source
   (`Rng`), never calls `Math.random`, `Date` or DOM APIs. This makes AI,
   spawning and collisions unit testable and makes attract-mode demo play
@@ -274,10 +281,14 @@ values that the constants module already defines.
 
 ### 5.1 Player tank
 
-- Two treads. Both forward: drive straight. Both back: reverse. One forward,
-  one neutral: gentle turn while moving. One forward, one back: pivot in
-  place. The cabinet sticks are digital 2-way, so analog sticks are
-  quantised with a dead zone.
+- Two treads, exactly the original's jump table (reference section 3):
+  both forward = move forward x2; both back = move back x2; forward/back
+  = pivot right x2 in place; back/forward = pivot left x2; one stick
+  forward with the other centred = rotate toward the idle side x1 plus
+  move forward x1 (a curve, not a pivot); one stick back = rotate x1 plus
+  move back x1. The sticks are digital 2-way, so analog sticks are
+  quantised with a dead zone. Turn step is 1/512 of a turn per rotate
+  call; move step is from constants.
 - Driving into an obstacle stops the tank (the original blocks motion; the
   tank does not slide). Obstacles are indestructible.
 - One player shell in flight at a time. Fire is ignored while a shell is
@@ -301,30 +312,47 @@ values that the constants module already defines.
 - **Saucer** (5,000). Wanders the battlefield, does not attack, does not
   show on radar, makes its own sound. Leaves after a while. Enemy tank
   shells can also destroy it (no points then).
-- At most one tank-type enemy (tank / supertank / missile) is alive at a
-  time; a saucer may overlap. After an enemy is destroyed the next one
-  spawns after the delay in constants. Difficulty ramps by score as the
-  original does (enemy type mix and aggression; see source notes).
+- Always exactly one enemy unit (tank / supertank / missile) alive at a
+  time, plus optionally one saucer. The next unit appears when the
+  previous one's debris finishes. Enemy selection follows the original's
+  ladder (reference section 3): missiles from 10,000 points by default,
+  saucers from 2,000, supertanks tied to the missile count. Enemy shells
+  cannot be shot down; the enemy may fire while the player's shell is in
+  flight (one slot each).
 
 ### 5.3 Battlefield
 
 - Flat infinite plane. The horizon shows the mountain range, an erupting
   volcano (dots ejected in arcs) and a crescent moon, all scrolling with
   the player's heading and never getting closer.
-- A fixed layout of pyramids and cubes (from constants/obstacle table)
-  around the origin, wrapping in the original's playfield space.
-- Debris: destroyed tanks break into pieces that fly up, tumble and fall
-  (the "Blew 'em to bits" screenshot). The turret piece is distinct.
+- The original's fixed layout of 21 obstacles (pyramids and boxes, from
+  the ROM table in constants). The layout is authentic; random placement
+  is not.
+- Debris: destroyed tanks break into pieces that fly up and fall (the
+  "Blew 'em to bits" screenshot). Pieces yaw only; the original never
+  pitches or rolls anything, so `Debris.rot`/`spin` use the y component
+  only. The next enemy appears the instant the last high chunk lands.
 
 ### 5.4 HUD (all drawn as vectors)
 
-- Top centre: radar circle with a rotating sweep line, a V-shaped wedge
-  above marking the field of view, and blips for tank-type enemies. Radar
-  range and sweep period from constants.
-- Top right: reserve tank icons, then SCORE nnnn and HIGH SCORE nnnn text.
-- Top left: ENEMY IN RANGE, shown while an enemy is within the alert range.
-- Centre: reticle. Normal picture, switching to the "target" picture when
-  an enemy is lined up in the sights.
+- Screen space is the ROM's: X in [-512, 512], Y in [-384, 384], origin at
+  centre, +Y up; the 3D view is clipped at Y = +192 and the HUD lives
+  above. Exact HUD positions are in the reference (section 1) and
+  `pictures.ts`.
+- Top centre: radar at (0, +316), radius 60: four N/S/E/W tick marks (no
+  circle), a V wedge for the field of view, a sweep line rotating 15.5
+  degrees per frame, and a pulsing blip for the enemy unit (saucers do not
+  show). Player-relative: the wedge points up.
+- Right of the radar: reserve tank icons at (+128, +360), SCORE at
+  (+128, +320), HIGH SCORE at (+128, +280) at half size.
+- Top left: ENEMY IN RANGE at (-440, +360) while an enemy is within alert
+  range.
+- Centre: two reticle pictures. Normal square-bracket gunsight at
+  intensity 6; locked (enemy within 2.8 degrees of centre) with splayed
+  corners at intensity 14. It blinks 32 NMIs on/off while the player's
+  shell is in flight.
+- Distant objects are drawn fainter (intensity by distance) as the
+  original did.
 - Colours: the arcade cabinet had a colour overlay: red band across the
   HUD strip, green below. The display module draws with that overlay by
   default (constant `OVERLAY_ENABLED`), otherwise plain white phosphor.
@@ -337,27 +365,28 @@ values that the constants module already defines.
    Start is accepted at any point in the cycle.
 2. **Play**: score 0, reserve tanks from constants, obstacles laid out,
    first enemy spawned after the initial delay.
-3. **Player death**: screen "cracks" (the crack picture grows across the
-   view over a few ticks, the world freezes), then the view clears and
-   the next tank is placed. The mutual-destruction case (both die at once)
-   still scores the kill.
+3. **Player death**: the windshield shatters: 8 groups of crack segments
+   radiating from screen centre accumulate one group per frame, then hold;
+   the camera lurches; the loud explosion plays. A player shell already in
+   flight can still score (mutual destruction). Then the view clears and
+   the next tank is placed.
 4. **Game over**: GAME OVER text; if the score makes the table, the
-   initials-entry screen follows (three initials chosen with the treads
-   sticks/up-down, fire to confirm each, per the original's scheme), then
-   the high score table, then back to attract.
-5. **Bonus tanks** at the thresholds in constants (15,000 and 100,000 by
-   default); an extra-life event plays its sound.
+   initials-entry screen follows (letters chosen with the RIGHT stick,
+   fire to confirm each, three initials, per the ROM's on-screen text),
+   then the high score table, then back to attract.
+5. **Bonus tanks** at 15,000 and 100,000 (default DIP setting); an
+   extra-life event plays its sound. Three tanks to start (default DIP).
+6. **One player only.** The original has no two-player mode.
 
 ### 5.6 Sound
 
-Every sound in the original, resynthesized: engine idle rumble that rises
-with motion, player fire, enemy fire, shell hitting an obstacle, enemy
-explosion (big low noise burst), player destroyed, ENEMY IN RANGE alert
-beep, missile launch and in-flight whine, saucer warble, saucer hit, extra
-life, and the high score / attract jingle if the original has one. Audio
-starts on the first user gesture (browser autoplay policy), so the attract
-mode is silent until a key or button is pressed, which matches a quiet
-arcade.
+Every sound in the original, resynthesized from the POKEY data streams and
+discrete-circuit bits documented in `docs/reference/original-game.md`
+section 5: the 8 POKEY effects, the detuned missile buzz scaled by
+distance, and the discrete engine (rev up with motion, down at rest), loud
+and soft cannon, loud and soft explosion. Attract mode is hard-muted as in
+the original. Audio starts on the first user gesture (browser autoplay
+policy).
 
 ## 6. Extracted original data (`src/data`)
 
