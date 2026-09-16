@@ -37,7 +37,8 @@ const BUTTON_DPAD_RIGHT = 15;
 /** Analogue buttons (triggers) count as held past half travel. */
 const BUTTON_THRESHOLD = 0.5;
 
-function clampTread(value: number): number {
+/** Keeps summed tread contributions inside the -1..1 range a stick can report. */
+export function clampTread(value: number): number {
   return Math.min(1, Math.max(-1, value));
 }
 

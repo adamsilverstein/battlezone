@@ -4,7 +4,7 @@
  * plus the press edges the game flow needs.
  */
 import type { InputState } from './types';
-import { DEAD_ZONE, readGamepad, type RawInput } from './gamepad';
+import { clampTread, DEAD_ZONE, readGamepad, type RawInput } from './gamepad';
 
 /**
  * Snaps an analogue tread value to the cabinet's three positions. Travel up to
@@ -14,10 +14,6 @@ export function quantiseTread(v: number, deadZone: number): -1 | 0 | 1 {
   if (v > deadZone) return 1;
   if (v < -deadZone) return -1;
   return 0;
-}
-
-function clampTread(value: number): number {
-  return Math.min(1, Math.max(-1, value));
 }
 
 /** Either source can drive the tank, so contributions sum and opposing ones cancel. */

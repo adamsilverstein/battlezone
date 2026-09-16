@@ -3,7 +3,7 @@
  * W/S drive the left tread, the up/down arrows (or I/K) the right tread, the
  * left/right arrows pivot both, Space fires and Enter starts.
  */
-import type { RawInput } from './gamepad';
+import { clampTread, type RawInput } from './gamepad';
 
 /** Tread contribution of each mapped key, summed so combinations behave predictably. */
 const TREAD_KEYS: Readonly<Record<string, { leftTread: number; rightTread: number }>> = {
@@ -22,10 +22,6 @@ const START_KEY = 'Enter';
 
 function isMapped(code: string): boolean {
   return code in TREAD_KEYS || code === FIRE_KEY || code === START_KEY;
-}
-
-function clampTread(value: number): number {
-  return Math.min(1, Math.max(-1, value));
 }
 
 /**
