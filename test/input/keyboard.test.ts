@@ -1,0 +1,114 @@
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it } from 'vitest';
+import { createKeyboard } from '../../src/input/keyboard';
+
+const keyboards: { dispose(): void }[] = [];
+
+function keyboardOn(target: EventTarget): ReturnType<typeof createKeyboard> {
+  const keyboard = createKeyboard(target);
+  keyboards.push(keyboard);
+  return keyboard;
+}
+
+function down(target: EventTarget, code: string): void {
+  target.dispatchEvent(new KeyboardEvent('keydown', { code }));
+}
+
+function up(target: EventTarget, code: string): void {
+  target.dispatchEvent(new KeyboardEvent('keyup', { code }));
+}
+
+afterEach(() => {
+  for (const keyboard of keyboards.splice(0)) keyboard.dispose();
+});
+
+describe('createKeyboard', () => {
+  it('reads neutral before any key is touched', () => {
+    const keyboard = keyboardOn(new EventTarget());
+    expect(keyboard.read()).toEqual({ leftTread: 0, rightTread: 0, fire: false, start: false });
+  });
+
+  it('maps W and S to the left tread', () => {
+    const target = new EventTarget();
+    const keyboard = keyboardOn(target);
+    down(target, 'KeyW');
+    expect(keyboard.read()).toMatchObject({ leftTread: 1, rightTread: 0 });
+    up(target, 'KeyW');
+    down(target, 'KeyS');
+    expect(keyboard.read()).toMatchObject({ leftTread: -1, rightTread: 0 });
+  });
+
+  it('maps the up and down arrows and I and K to the right tread', () => {
+    const target = new EventTarget();
+    const keyboard = keyboardOn(target);
+    for (const code of ['ArrowUp', 'KeyI']) {
+      down(target, code);
+      expect(keyboard.read()).toMatchObject({ leftTread: 0, rightTread: 1 });
+      up(target, code);
+    }
+    for (const code of ['ArrowDown', 'KeyK']) {
+      down(target, code);
+      expect(keyboard.read()).toMatchObject({ leftTread: 0, rightTread: -1 });
+      up(target, code);
+    }
+  });
+
+  it('pivots on the left and right arrows', () => {
+    const target = new EventTarget();
+    const keyboard = keyboardOn(target);
+    down(target, 'ArrowLeft');
+    expect(keyboard.read()).toMatchObject({ leftTread: -1, rightTread: 1 });
+    up(target, 'ArrowLeft');
+    down(target, 'ArrowRight');
+    expect(keyboard.read()).toMatchObject({ leftTread: 1, rightTread: -1 });
+  });
+
+  it('maps Space to fire and Enter to start', () => {
+    const target = new EventTarget();
+    const keyboard = keyboardOn(target);
+    down(target, 'Space');
+    down(target, 'Enter');
+    expect(keyboard.read()).toMatchObject({ fire: true, start: true });
+    up(target, 'Space');
+    expect(keyboard.read()).toMatchObject({ fire: false, start: true });
+  });
+
+  it('holds keys until they are released', () => {
+    const target = new EventTarget();
+    const keyboard = keyboardOn(target);
+    down(target, 'KeyW');
+    expect(keyboard.read()).toMatchObject({ leftTread: 1 });
+    expect(keyboard.read()).toMatchObject({ leftTread: 1 });
+    up(target, 'KeyW');
+    expect(keyboard.read()).toMatchObject({ leftTread: 0 });
+  });
+
+  it('sums opposing and combined keys, clamped to the -1..1 range', () => {
+    const target = new EventTarget();
+    const keyboard = keyboardOn(target);
+    down(target, 'KeyW');
+    down(target, 'KeyS');
+    expect(keyboard.read()).toMatchObject({ leftTread: 0 });
+    up(target, 'KeyS');
+    down(target, 'ArrowRight');
+    // Left tread gets +1 from W and +1 from the pivot but never exceeds +1.
+    expect(keyboard.read()).toMatchObject({ leftTread: 1, rightTread: -1 });
+  });
+
+  it('ignores keys it does not map', () => {
+    const target = new EventTarget();
+    const keyboard = keyboardOn(target);
+    down(target, 'KeyQ');
+    expect(keyboard.read()).toEqual({ leftTread: 0, rightTread: 0, fire: false, start: false });
+  });
+
+  it('stops listening and reads neutral after dispose', () => {
+    const target = new EventTarget();
+    const keyboard = createKeyboard(target);
+    down(target, 'KeyW');
+    keyboard.dispose();
+    expect(keyboard.read()).toEqual({ leftTread: 0, rightTread: 0, fire: false, start: false });
+    down(target, 'KeyS');
+    expect(keyboard.read()).toMatchObject({ leftTread: 0 });
+  });
+});
