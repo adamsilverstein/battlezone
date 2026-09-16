@@ -75,12 +75,12 @@ T3 and T4 start as soon as the shared types (T2 step 1) are on main.
   // render/scene.ts
   export function drawHorizon(d: VectorDisplay, cam: Camera, tick: number): void  // horizon line, mountains, volcano + eruption dots, moon
   // render/renderer.ts
-  export function createRenderer(d: VectorDisplay): { render(state: GameState): void }  // T7/T8 extend this
+  export function createRenderer(d: VectorDisplay): { render(state: GameState, alpha: number): void }  // T7/T8 extend this. alpha in [0,1) is the fraction of the current tick elapsed; the renderer snapshots player/entity transforms whenever state.world.tick changes and interpolates (visual only, spec 4).
   ```
 
 **Requirements:**
-- Display coordinate space = original vector space from `constants.ts`; canvas letterboxes at 4:3, DPR-aware, resizes with the window. Glow pass then bright pass. Overlay colours: red band for the HUD strip, green elsewhere, controlled by `overlay` option (default from `constants.OVERLAY_ENABLED`).
-- `createLoop` is deterministic and injectable (`raf`, `now`) so tests can step it; it caps catch-up ticks to avoid spiral of death.
+- Display coordinate space = the ROM's screen units: X in [-512, 512], Y in [-384, 384], origin centre, +Y up (constants.ts); canvas letterboxes at 4:3, DPR-aware, resizes with the window. The 3D view is clipped at Y = +192 (scene draws use a clip rect; HUD is not clipped). Glow pass then bright pass. Overlay colours: red band for the HUD strip, green elsewhere, controlled by `overlay` option (default from `constants.OVERLAY_ENABLED`).
+- `createLoop` is deterministic and injectable (`raf`, `now`) so tests can step it; it caps catch-up ticks to avoid spiral of death. `tickHz` is the original's 15.625; `render(alpha)` receives the fraction of the pending tick so the renderer can interpolate.
 - Camera: +Z forward at heading 0, heading increases clockwise from above; focal length and eye height from constants; near-plane clipping of segments, cull beyond draw distance.
 - Horizon: mountains scroll with heading using the wrap width from `mountains.ts`; the volcano ejects dots on a repeating arc; the moon is a crescent at its fixed bearing. All stay at infinite distance (pure heading offset, no parallax).
 - Tests: wrapAngle bounds; rng determinism; loop ticks exactly N times for elapsed time and caps catch-up; recording display captures lines; text renders every glyph in the font and measures width; projection of a point directly ahead lands at screen centre-ish, behind camera returns null, segment crossing near plane is clipped not dropped; horizon draws mountain lines and the count is stable across headings.
@@ -131,7 +131,7 @@ T3 and T4 start as soon as the shared types (T2 step 1) are on main.
   ```
 
 **Requirements:**
-- Sounds per spec 5.6 and the POKEY descriptions in `docs/reference/atari-source-notes.md` (frequencies, noise types, envelopes). Use oscillators, noise buffers (white/pink via filtered noise), biquad filters and gain envelopes. No samples.
+- Sounds per spec 5.6 and the POKEY / discrete-circuit descriptions in `docs/reference/original-game.md` section 5 (AUDF/AUDC streams, the 8 effects, the detuned missile buzz, engine rev up/down, loud/soft cannon and explosion) plus `docs/reference/atari-source-notes.md` if present. Use oscillators, noise buffers (white/pink via filtered noise), biquad filters and gain envelopes. No samples.
 - Continuous sounds (engine, alert beep loop, missile whine, saucer warble) start/stop from `update(snapshot)`; one-shots from `handle(event)`.
 - `unlock()` resumes the context on first user gesture; before unlock, calls are no-ops.
 - Cap simultaneous voices; never throw if the context is closed.
@@ -228,7 +228,7 @@ T3 and T4 start as soon as the shared types (T2 step 1) are on main.
 
 **Requirements:**
 - Layout matches the screenshots: radar top centre with V wedge, sweep line and blips; reserve tank icons then SCORE / HIGH SCORE right of radar; ENEMY IN RANGE top left; reticle centre; positions from `pictures.ts` / constants.
-- Enemies drawn with `drawModel` using heading; missile and saucer at their `y`; shells as the projectile model or a short line; debris tumbling; obstacles from their models.
+- Enemies drawn with `drawModel` using heading; missile and saucer at their `y`; shells as the projectile model or a short line; debris yawing only (no pitch/roll, per spec 5.3); obstacles from their models. Objects interpolate between ticks using the renderer's transform snapshots (spec 4). Intensity fades with distance as the reference describes.
 - Screen crack: the original crack picture revealed progressively (by line count) as `progress` grows.
 - Score digits rendered with the vector font, zero-padded as the original.
 
