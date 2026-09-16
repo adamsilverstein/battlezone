@@ -106,6 +106,10 @@ export type GameEvent =
   /** Fired once when the alert starts. */
   | { type: 'enemyInRange' }
   | { type: 'extraLife' }
+  /** Nine-note 1812 Overture: at the 100,000-point bonus and at high-score entry. */
+  | { type: 'fanfare' }
+  /** Radar blip refreshed at full intensity (once per sweep pass over the enemy). */
+  | { type: 'radarPing' }
   /** Player drove into an obstacle. */
   | { type: 'motionBlocked' };
 
@@ -146,4 +150,6 @@ export interface AudioSnapshot {
   missileActive: boolean;
   /** Saucer warble while a saucer is alive. */
   saucerActive: boolean;
+  /** Distance from player to the live missile in world units, or null when none; scales the buzz. */
+  missileDistance: number | null;
 }
