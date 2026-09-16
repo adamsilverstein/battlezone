@@ -200,6 +200,8 @@ describe('buffers', () => {
 
     const data = poly4.getChannelData(0);
     expect([...new Set(data)].sort()).toEqual([-1, 1]);
+    // A maximal-length 4-bit counter visits every state but zero: 8 ones.
+    expect([...data].filter((sample) => sample === 1)).toHaveLength(8);
   });
 
   it('fills the white noise buffer with values inside the sample range', () => {

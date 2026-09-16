@@ -133,21 +133,35 @@ export function createAudioSystem(
     }
   }
 
-  function stopVoice(voice: Voice | null, at: number): null {
+  function stopVoice(voice: Voice | null, at: number): void {
     try {
       voice?.stop(at);
     } catch {
       // Nothing to do: the context has gone.
     }
-    return null;
+  }
+
+  function stopEngine(at: number): void {
+    stopVoice(engine, at);
+    engine = null;
+  }
+
+  function stopHover(at: number): void {
+    stopVoice(hover, at);
+    hover = null;
+  }
+
+  function stopBuzz(at: number): void {
+    stopVoice(buzz, at);
+    buzz = null;
   }
 
   function stopAll(at: number): void {
     for (const voice of slots.values()) stopVoice(voice, at);
     slots.clear();
-    engine = stopVoice(engine, at) as EngineVoice | null;
-    hover = stopVoice(hover, at) as SaucerHoverVoice | null;
-    buzz = stopVoice(buzz, at) as MissileBuzzVoice | null;
+    stopEngine(at);
+    stopHover(at);
+    stopBuzz(at);
     nextPingTime = 0;
   }
 
@@ -215,7 +229,7 @@ export function createAudioSystem(
         case 'playerDestroyed':
           play('explosion', (s, at) => playExplosion(s, at, true));
           // The buzz is silenced the moment the missile connects.
-          buzz = stopVoice(buzz, now()) as MissileBuzzVoice | null;
+          stopBuzz(now());
           break;
         case 'missileLaunched':
           startBuzz(now());
@@ -247,7 +261,7 @@ export function createAudioSystem(
           engine ??= startEngine(active, at);
           engine.setRev(snapshot.moving, at);
         } else {
-          engine = stopVoice(engine, at) as EngineVoice | null;
+          stopEngine(at);
         }
 
         if (snapshot.enemyInRange) {
@@ -260,10 +274,10 @@ export function createAudioSystem(
         }
 
         if (snapshot.missileActive) startBuzz(at);
-        else buzz = stopVoice(buzz, at) as MissileBuzzVoice | null;
+        else stopBuzz(at);
 
         if (snapshot.saucerActive) hover ??= startSaucerHover(active, at);
-        else hover = stopVoice(hover, at) as SaucerHoverVoice | null;
+        else stopHover(at);
       } catch {
         // Never let audio break a frame.
       }
