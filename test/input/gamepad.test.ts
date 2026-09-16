@@ -1,26 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEAD_ZONE, readGamepad } from '../../src/input/gamepad';
-
-/** Builds a `Gamepad`-shaped object with the standard layout's 4 axes and 17 buttons. */
-function fakePad(
-  overrides: { axes?: number[]; buttons?: number[]; connected?: boolean; index?: number } = {},
-): Gamepad {
-  const axes = [0, 0, 0, 0];
-  for (const [i, value] of (overrides.axes ?? []).entries()) axes[i] = value;
-  const values = [...Array(17).fill(0)];
-  for (const [i, value] of (overrides.buttons ?? []).entries()) values[i] = value;
-  return {
-    id: 'fake pad',
-    index: overrides.index ?? 0,
-    connected: overrides.connected ?? true,
-    mapping: 'standard',
-    timestamp: 0,
-    axes,
-    buttons: values.map((value: number) => ({ pressed: value >= 0.5, touched: value > 0, value })),
-    hapticActuators: [],
-    vibrationActuator: null,
-  } as unknown as Gamepad;
-}
+import { fakePad, pressed } from './fake-pad';
 
 describe('readGamepad', () => {
   it('returns null when there is no connected pad', () => {
@@ -41,46 +21,38 @@ describe('readGamepad', () => {
   });
 
   it('maps buttons 0 and 7 to fire and button 9 to start', () => {
-    expect(readGamepad([fakePad({ buttons: [1] })])?.fire).toBe(true);
-    const trigger = [0, 0, 0, 0, 0, 0, 0, 1];
-    expect(readGamepad([fakePad({ buttons: trigger })])?.fire).toBe(true);
-    const start = [0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
-    expect(readGamepad([fakePad({ buttons: start })])?.start).toBe(true);
+    expect(readGamepad([fakePad({ buttons: pressed(0) })])?.fire).toBe(true);
+    expect(readGamepad([fakePad({ buttons: pressed(7) })])?.fire).toBe(true);
+    expect(readGamepad([fakePad({ buttons: pressed(9) })])?.start).toBe(true);
   });
 
   it('treats a part-pressed analogue trigger below half travel as released', () => {
-    const half = [0, 0, 0, 0, 0, 0, 0, 0.4];
+    const half = pressed();
+    half[7] = 0.4;
     expect(readGamepad([fakePad({ buttons: half })])?.fire).toBe(false);
   });
 
   it('maps the d-pad to tread pairs', () => {
-    const dpad = (index: number): number[] => {
-      const buttons = Array(17).fill(0);
-      buttons[index] = 1;
-      return buttons;
-    };
-    expect(readGamepad([fakePad({ buttons: dpad(12) })])).toMatchObject({
+    expect(readGamepad([fakePad({ buttons: pressed(12) })])).toMatchObject({
       leftTread: 1,
       rightTread: 1,
     });
-    expect(readGamepad([fakePad({ buttons: dpad(13) })])).toMatchObject({
+    expect(readGamepad([fakePad({ buttons: pressed(13) })])).toMatchObject({
       leftTread: -1,
       rightTread: -1,
     });
-    expect(readGamepad([fakePad({ buttons: dpad(14) })])).toMatchObject({
+    expect(readGamepad([fakePad({ buttons: pressed(14) })])).toMatchObject({
       leftTread: -1,
       rightTread: 1,
     });
-    expect(readGamepad([fakePad({ buttons: dpad(15) })])).toMatchObject({
+    expect(readGamepad([fakePad({ buttons: pressed(15) })])).toMatchObject({
       leftTread: 1,
       rightTread: -1,
     });
   });
 
   it('sums stick and d-pad contributions, clamped to the -1..1 range', () => {
-    const dpadUp = Array(17).fill(0);
-    dpadUp[12] = 1;
-    const raw = readGamepad([fakePad({ axes: [0, -1, 0, 1], buttons: dpadUp })]);
+    const raw = readGamepad([fakePad({ axes: [0, -1, 0, 1], buttons: pressed(12) })]);
     // Left stick forward plus d-pad forward stays at +1; right stick back cancels the d-pad.
     expect(raw).toMatchObject({ leftTread: 1, rightTread: 0 });
   });
@@ -93,7 +65,7 @@ describe('readGamepad', () => {
 
   it('prefers the first pad with input and ignores null slots', () => {
     const idle = fakePad({ index: 0 });
-    const active = fakePad({ buttons: [1], index: 2 });
+    const active = fakePad({ buttons: pressed(0), index: 2 });
     const alsoActive = fakePad({ axes: [0, -1, 0, 0], index: 3 });
     expect(readGamepad([null, idle, active, alsoActive])?.fire).toBe(true);
   });
