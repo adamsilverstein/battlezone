@@ -77,13 +77,16 @@ const MASTER_LEVEL = 0.55;
  * all, which is the harshest sound a digital mixer can make and was a third of
  * the samples in a busy minute.
  *
- * Trimming the master instead would fix the stack by making the ordinary game
- * too quiet, so the loud moments are held back only while they last: a limiter
- * that ignores anything under LIMIT_THRESHOLD_DB and leans on what is over it,
- * fast enough to catch an explosion's attack and slow enough not to pump on the
- * engine. The soft clip behind it is the safety net, a smooth curve where the
- * browser's own ceiling is a corner, so a transient that outruns the limiter's
- * attack bends instead of shattering.
+ * Trimming the master far enough to fit the stack under 1 would fix it by making
+ * the ordinary game too quiet, so the loud moments are held back only while they
+ * last: a limiter that ignores anything under LIMIT_THRESHOLD_DB and leans on
+ * what is over it, fast enough to catch an explosion's attack and slow enough
+ * not to pump on the engine. The master still comes down a little, but only to
+ * pay back the makeup gain the limiter brings with it, not to fit the stack.
+ *
+ * The soft clip behind it is the safety net, a smooth curve where the browser's
+ * own ceiling is a corner, so a transient that outruns the limiter's four
+ * milliseconds of attack bends instead of shattering.
  */
 const LIMIT_THRESHOLD_DB = -8;
 const LIMIT_KNEE_DB = 6;
@@ -93,24 +96,48 @@ const LIMIT_RELEASE_SECONDS = 0.2;
 
 /** Where the soft clip stops being a straight line, in linear amplitude. */
 const SOFT_CLIP_LINEAR = 0.7;
+
+/**
+ * What the bend approaches and never reaches, a hair under full scale, so that
+ * even a signal past the headroom below comes out under the browser's ceiling
+ * rather than sitting on it.
+ */
+const SOFT_CLIP_CEILING = 0.98;
 const SOFT_CLIP_SAMPLES = 2048;
 
 /**
- * A curve that passes everything under SOFT_CLIP_LINEAR through untouched and
- * bends the rest towards 1 along a tanh, meeting the straight part with the same
- * slope so the join itself adds nothing.
+ * How far past full scale the soft clip can still bend something.
+ *
+ * A WaveShaper reads its curve over an input of -1..1 and clamps anything
+ * outside that before it looks, so a curve drawn straight over that range cannot
+ * see an overshoot at all: every sample over 1 lands on the last point and comes
+ * out as the same flat top the stage exists to avoid. The mix is therefore
+ * scaled down into the shaper and back up after it, which puts the curve's own
+ * -1..1 in front of a signal four times that wide - two octaves of headroom over
+ * full scale, where the worst stack measured is 1.8.
+ */
+export const SOFT_CLIP_HEADROOM = 4;
+
+/**
+ * The curve, in the shaper's own scale: everything under SOFT_CLIP_LINEAR passes
+ * through untouched and the rest bends towards 1 along a tanh, meeting the
+ * straight part with the same slope so the join itself adds nothing.
+ *
+ * Both are read in signal amplitude, not the shaper's, so the curve is written
+ * for a signal SOFT_CLIP_HEADROOM times as wide and divided back down.
  */
 export function softClipCurve(samples = SOFT_CLIP_SAMPLES): Float32Array<ArrayBuffer> {
   const curve = new Float32Array(new ArrayBuffer(samples * Float32Array.BYTES_PER_ELEMENT));
-  const knee = 1 - SOFT_CLIP_LINEAR;
+  const knee = SOFT_CLIP_CEILING - SOFT_CLIP_LINEAR;
   for (let i = 0; i < samples; i += 1) {
-    const x = (i / (samples - 1)) * 2 - 1;
+    const x = ((i / (samples - 1)) * 2 - 1) * SOFT_CLIP_HEADROOM;
     const magnitude = Math.abs(x);
-    curve[i] =
+    const shaped =
       magnitude <= SOFT_CLIP_LINEAR
         ? x
         : Math.sign(x) *
           (SOFT_CLIP_LINEAR + knee * Math.tanh((magnitude - SOFT_CLIP_LINEAR) / knee));
+    curve[i] = shaped / SOFT_CLIP_HEADROOM;
   }
   return curve;
 }
@@ -141,8 +168,16 @@ function connectOutputStage(created: AudioContext, gain: GainNode): void {
     const shaper = created.createWaveShaper();
     shaper.curve = softClipCurve();
     shaper.oversample = '4x';
-    tail.connect(shaper);
-    tail = shaper;
+    // Down into the curve's range, through it, and back out: see
+    // SOFT_CLIP_HEADROOM for why the scaling is what makes the bend reachable.
+    const into = created.createGain();
+    into.gain.value = 1 / SOFT_CLIP_HEADROOM;
+    const outOf = created.createGain();
+    outOf.gain.value = SOFT_CLIP_HEADROOM;
+    tail.connect(into);
+    into.connect(shaper);
+    shaper.connect(outOf);
+    tail = outOf;
   } catch {
     // No shaper either: the browser's own ceiling is all that is left.
   }
@@ -320,6 +355,11 @@ export function createAudioSystem(
   function watchForDeviceFailure(created: AudioContext): void {
     try {
       created.addEventListener('error', () => {
+        // A context that has already been let go of can still fire, and the
+        // listener goes with the graph rather than being removed; its news is
+        // old, and acting on it would condemn the replacement that is working
+        // and spend another of the few replacements on nothing.
+        if (created !== ctx) return;
         deviceFailed = true;
         // The clock is the only honest report of whether this context was ever
         // working: it only advances while audio is really being rendered.
@@ -482,8 +522,14 @@ export function createAudioSystem(
       // Re-muting an already muted system would start a fresh fade and stop the
       // voices again every tick, so an unchanged value is not an event.
       if (m === muted) return;
+      // The flag is recorded whatever the context is doing, so a replacement is
+      // born at the gain the game asked for.
       muted = m;
-      if (!ctx || !master) return;
+      // Every other path goes through `ready()`, which refuses a context the
+      // device has killed; this one has to refuse it for itself, or the attract
+      // cycle's mute every few seconds would pile automation on a dead graph for
+      // as long as the cabinet is left alone.
+      if (!ctx || !master || deviceFailed) return;
       const at = now();
       // Fade rather than flip, and let the voices ring out over the fade.
       if (m) stopAll(at + MUTE_RAMP_SECONDS);

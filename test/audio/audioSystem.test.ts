@@ -151,6 +151,59 @@ describe('a context the audio device kills', () => {
     expect(factoryCalls()).toBe(1);
   });
 
+  it('stops muting into a dead context, however long the cabinet is left alone', async () => {
+    const { fake, audio } = await unlocked();
+    audio.update(PLAYING);
+    const master = gains(fake)[0]!;
+    fake.advance(MIN_WORKING_SECONDS + 4);
+    fake.failDevice();
+    const after = master.gain.changes.length;
+
+    // Attract mode mutes and unmutes every cycle, and the clock of a dead
+    // context never moves again, so every one of these would land on the same
+    // instant and pile up there for as long as nobody touches the cabinet.
+    for (let i = 0; i < 20; i += 1) {
+      audio.setMuted(true);
+      audio.setMuted(false);
+    }
+
+    expect(master.gain.changes.length).toBe(after);
+  });
+
+  it('remembers a mute asked for while the context was dead', async () => {
+    const { fakes, audio } = await unlocked();
+    const first = fakes[0] as FakeAudioContext;
+    first.advance(MIN_WORKING_SECONDS + 4);
+    first.failDevice();
+
+    audio.setMuted(true);
+    expect(await audio.unlock()).toBe(true);
+
+    // The replacement is born at the gain the game last asked for, not at the
+    // one the dead context happened to be holding.
+    const replacement = fakes[1] as FakeAudioContext;
+    expect(gains(replacement)[0]?.gain.value).toBe(0);
+  });
+
+  it('ignores a late error from a context it has already let go of', async () => {
+    const { fakes, audio, factoryCalls } = await unlocked();
+    const first = fakes[0] as FakeAudioContext;
+    first.advance(MIN_WORKING_SECONDS + 10);
+    first.failDevice();
+    expect(await audio.unlock()).toBe(true);
+    const replacement = fakes[1] as FakeAudioContext;
+
+    // The listener goes with the graph rather than being removed, so the dead
+    // context can still speak; its news is old, and acting on it would condemn
+    // the replacement that is working.
+    first.failDevice();
+
+    playSomething(audio);
+    expect(replacement.activeSources(0).length).toBeGreaterThan(0);
+    expect(replacement.closeCalls).toBe(0);
+    expect(factoryCalls()).toBe(2);
+  });
+
   it('leaves a running context alone, however many gestures arrive', async () => {
     const { fake, audio, factoryCalls } = await unlocked();
 

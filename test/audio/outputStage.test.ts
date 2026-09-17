@@ -13,10 +13,11 @@ import { describe, expect, it } from 'vitest';
 import {
   FakeAudioContext,
   FakeDynamicsCompressorNode,
+  FakeGainNode,
   FakeWaveShaperNode,
   asAudioContext,
 } from './fakeAudioContext';
-import { createAudioSystem, softClipCurve } from '../../src/audio/audioSystem';
+import { createAudioSystem, SOFT_CLIP_HEADROOM, softClipCurve } from '../../src/audio/audioSystem';
 import { gains, unlocked } from './audioSystemHarness';
 
 function compressor(fake: FakeAudioContext): FakeDynamicsCompressorNode | undefined {
@@ -29,13 +30,19 @@ function shaper(fake: FakeAudioContext): FakeWaveShaperNode | undefined {
   return fake.nodes.find((n): n is FakeWaveShaperNode => n instanceof FakeWaveShaperNode);
 }
 
-/** The curve read the way a WaveShaper reads it, for an input in -1..1. */
-function shape(curve: Float32Array, x: number): number {
-  const position = ((x + 1) / 2) * (curve.length - 1);
+/**
+ * A signal through the whole soft clip: scaled down into the shaper's range, read
+ * off the curve the way a WaveShaper reads it - clamping anything outside -1..1
+ * first, as the spec says - and scaled back up.
+ */
+function shape(curve: Float32Array, signal: number): number {
+  const input = Math.min(1, Math.max(-1, signal / SOFT_CLIP_HEADROOM));
+  const position = ((input + 1) / 2) * (curve.length - 1);
   const low = Math.floor(position);
   const high = Math.min(low + 1, curve.length - 1);
   const t = position - low;
-  return (curve[low] as number) * (1 - t) + (curve[high] as number) * t;
+  const shaped = (curve[low] as number) * (1 - t) + (curve[high] as number) * t;
+  return shaped * SOFT_CLIP_HEADROOM;
 }
 
 describe('the graph', () => {
@@ -47,8 +54,26 @@ describe('the graph', () => {
     const clip = shaper(fake);
 
     expect(master?.outputs).toEqual([limiter]);
-    expect(limiter?.outputs).toEqual([clip]);
-    expect(clip?.outputs).toEqual([fake.destination]);
+    // Into the curve's range, through it, and back out again.
+    const into = limiter?.outputs[0] as FakeGainNode | undefined;
+    expect(into?.outputs).toEqual([clip]);
+    const outOf = clip?.outputs[0] as FakeGainNode | undefined;
+    expect(outOf?.outputs).toEqual([fake.destination]);
+    expect(into?.gain.value).toBeCloseTo(1 / SOFT_CLIP_HEADROOM, 10);
+    expect((into?.gain.value as number) * (outOf?.gain.value as number)).toBeCloseTo(1, 10);
+  });
+
+  it('gives the curve room to bend an overshoot the limiter let through', () => {
+    // A WaveShaper clamps its input to -1..1 before it reads the curve, so a
+    // curve drawn straight over that range cannot see an overshoot at all: the
+    // leading edge of a stacked explosion would land on the last point and come
+    // out as the flat top this stage exists to avoid.
+    const curve = softClipCurve();
+    const overshoot = 1.8;
+    const bent = shape(curve, overshoot);
+    expect(bent).toBeLessThan(1);
+    expect(bent).toBeGreaterThan(shape(curve, 1));
+    expect(bent).toBeLessThan(shape(curve, overshoot + 0.5));
   });
 
   it('sets a limiter that catches an explosion but does not pump on the engine', async () => {
@@ -100,15 +125,22 @@ describe('the soft clip curve', () => {
   });
 
   it('bends what is over the knee towards the ceiling, and never past it', () => {
-    for (const x of [0.75, 0.9, 1, -0.85, -1]) {
+    for (const x of [0.75, 0.9, 1, 1.8, 3.5, -0.85, -1, -2.4]) {
       const y = shape(curve, x);
       expect(Math.abs(y)).toBeLessThan(1);
       expect(Math.abs(y)).toBeLessThan(Math.abs(x));
     }
   });
 
-  it('rises all the way, so the bend adds no fold-back', () => {
+  it('never turns back on itself, so the bend adds no fold-back', () => {
     for (let i = 1; i < curve.length; i += 1) {
+      expect(curve[i] as number).toBeGreaterThanOrEqual(curve[i - 1] as number);
+    }
+    // And it is still rising over everything the mix can actually reach; only
+    // the far tail, well past twice full scale, flattens onto the ceiling.
+    const indexFor = (signal: number): number =>
+      Math.round((curve.length - 1) * ((signal / SOFT_CLIP_HEADROOM + 1) / 2));
+    for (let i = indexFor(-2) + 1; i <= indexFor(2); i += 1) {
       expect(curve[i] as number).toBeGreaterThan(curve[i - 1] as number);
     }
   });
