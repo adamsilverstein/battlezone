@@ -4,7 +4,48 @@
  * It records every node that gets created, how nodes are connected, every
  * scheduled AudioParam change and every start/stop call, so tests can assert on
  * the graph the synth builds without a real audio device.
+ *
+ * It is also strict where a real browser is strict. A `NaN` frequency, a
+ * negative time, an exponential ramp to zero, a buffer offset past the end of
+ * the buffer or a source started twice all throw here, exactly as they throw in
+ * Chrome - so a sound that would poison the renderer fails a unit test instead
+ * of reaching a player.
+ *
+ * Every such refusal is also recorded on the context's `violations` list before
+ * it is thrown. The audio system deliberately swallows its own exceptions so a
+ * bad frame can never break the game loop, which would otherwise make a throw
+ * from here invisible; the list survives the swallowing.
  */
+
+/** Something that collects the refusals, so a swallowed throw still shows up. */
+export interface ViolationLog {
+  readonly violations: string[];
+}
+
+/** Records the refusal on the owning context, then throws it as a browser does. */
+function refuse(log: ViolationLog | undefined, error: Error): never {
+  log?.violations.push(error.message);
+  throw error;
+}
+
+/** Rejects the values a real AudioParam rejects. */
+function checkValue(log: ViolationLog | undefined, label: string, value: number): void {
+  if (!Number.isFinite(value)) {
+    refuse(log, new TypeError(`${label}: value must be finite, got ${String(value)}`));
+  }
+  // A real exponential ramp cannot reach or leave zero: the browser throws.
+  if (label.endsWith('exponentialRampToValueAtTime') && value === 0) {
+    refuse(log, new RangeError(`${label}: an exponential ramp cannot reach 0`));
+  }
+}
+
+/** Rejects the times a real AudioParam or source node rejects. */
+function checkTime(log: ViolationLog | undefined, label: string, time: number): void {
+  if (!Number.isFinite(time)) {
+    refuse(log, new TypeError(`${label}: time must be finite, got ${String(time)}`));
+  }
+  if (time < 0) refuse(log, new RangeError(`${label}: time must not be negative, got ${time}`));
+}
 
 export type ParamMethod =
   | 'setValueAtTime'
@@ -27,6 +68,8 @@ export class FakeAudioParam {
   constructor(
     readonly name: string,
     value: number,
+    /** The context whose violation list refusals are recorded on. */
+    private readonly log?: ViolationLog,
   ) {
     this.value = value;
   }
@@ -48,12 +91,14 @@ export class FakeAudioParam {
   }
 
   cancelScheduledValues(time: number): this {
+    checkTime(this.log, `${this.name}.cancelScheduledValues`, time);
     this.changes.push({ method: 'cancelScheduledValues', value: this.value, time });
     return this;
   }
 
   /** Anchors an automation curve at its current value. */
   cancelAndHoldAtTime(time: number): this {
+    checkTime(this.log, `${this.name}.cancelAndHoldAtTime`, time);
     this.changes.push({ method: 'cancelAndHoldAtTime', value: this.value, time });
     return this;
   }
@@ -90,6 +135,8 @@ export class FakeAudioParam {
   }
 
   private record(method: ParamMethod, value: number, time: number): this {
+    checkValue(this.log, `${this.name}.${method}`, value);
+    checkTime(this.log, `${this.name}.${method}`, time);
     this.changes.push({ method, value, time });
     this.value = value;
     return this;
@@ -139,12 +186,35 @@ export class FakeScheduledSource extends FakeAudioNode {
   onended: (() => void) | null = null;
 
   start(when = 0, offset?: number): void {
+    // A real source is one-shot: starting it again is an InvalidStateError.
+    if (this.startCalls > 0) {
+      refuse(this.context, new Error(`${this.kind}.start: already started`));
+    }
+    checkTime(this.context, `${this.kind}.start`, when);
+    if (offset !== undefined) {
+      checkTime(this.context, `${this.kind}.start offset`, offset);
+      // A source started at or past the end of its buffer plays nothing at all,
+      // which is a bug the ear never hears: fail here instead.
+      const buffer = (this as { buffer?: FakeAudioBuffer | null }).buffer;
+      if (buffer && offset >= buffer.duration) {
+        refuse(
+          this.context,
+          new RangeError(
+            `${this.kind}.start: offset ${offset} is beyond the ${buffer.duration}s buffer`,
+          ),
+        );
+      }
+    }
     this.startCalls += 1;
     this.startTime = when;
     this.startOffset = offset ?? null;
   }
 
   stop(when = 0): void {
+    if (this.startCalls === 0) {
+      refuse(this.context, new Error(`${this.kind}.stop: not started`));
+    }
+    checkTime(this.context, `${this.kind}.stop`, when);
     this.stopCalls += 1;
     this.stopTime = this.stopTime === null ? when : Math.min(this.stopTime, when);
   }
@@ -158,8 +228,8 @@ export class FakeScheduledSource extends FakeAudioNode {
 
 export class FakeOscillatorNode extends FakeScheduledSource {
   type: OscillatorType = 'sine';
-  readonly frequency = new FakeAudioParam('frequency', 440);
-  readonly detune = new FakeAudioParam('detune', 0);
+  readonly frequency = new FakeAudioParam('frequency', 440, this.context);
+  readonly detune = new FakeAudioParam('detune', 0, this.context);
 
   constructor(context: FakeAudioContext) {
     super('oscillator', context);
@@ -193,7 +263,7 @@ export class FakeAudioBufferSourceNode extends FakeScheduledSource {
   loop = false;
   loopStart = 0;
   loopEnd = 0;
-  readonly playbackRate = new FakeAudioParam('playbackRate', 1);
+  readonly playbackRate = new FakeAudioParam('playbackRate', 1, this.context);
 
   constructor(context: FakeAudioContext) {
     super('bufferSource', context);
@@ -201,7 +271,7 @@ export class FakeAudioBufferSourceNode extends FakeScheduledSource {
 }
 
 export class FakeGainNode extends FakeAudioNode {
-  readonly gain = new FakeAudioParam('gain', 1);
+  readonly gain = new FakeAudioParam('gain', 1, this.context);
 
   constructor(context: FakeAudioContext) {
     super('gain', context);
@@ -210,8 +280,8 @@ export class FakeGainNode extends FakeAudioNode {
 
 export class FakeBiquadFilterNode extends FakeAudioNode {
   type: BiquadFilterType = 'lowpass';
-  readonly frequency = new FakeAudioParam('frequency', 350);
-  readonly Q = new FakeAudioParam('Q', 1);
+  readonly frequency = new FakeAudioParam('frequency', 350, this.context);
+  readonly Q = new FakeAudioParam('Q', 1, this.context);
 
   constructor(context: FakeAudioContext) {
     super('biquad', context);
@@ -224,11 +294,40 @@ export class FakeAudioContext {
   state: AudioContextState = 'suspended';
   readonly destination: FakeAudioNode;
   readonly nodes: FakeAudioNode[] = [];
+  /** Every value or time this context refused, in the order it refused them. */
+  readonly violations: string[] = [];
   resumeCalls = 0;
   closeCalls = 0;
+  private readonly listeners = new Map<string, Set<(event: Event) => void>>();
 
   constructor() {
     this.destination = new FakeAudioNode('destination', this);
+  }
+
+  addEventListener(type: string, listener: (event: Event) => void): void {
+    const set = this.listeners.get(type) ?? new Set();
+    set.add(listener);
+    this.listeners.set(type, set);
+  }
+
+  removeEventListener(type: string, listener: (event: Event) => void): void {
+    this.listeners.get(type)?.delete(listener);
+  }
+
+  /**
+   * What Chrome does when the audio device or the renderer gives up: it fires an
+   * `error` event, logs "The AudioContext encountered an error from the audio
+   * device or the WebAudio renderer" and leaves the context suspended, with its
+   * clock stopped, for good. Nothing resumes it.
+   */
+  failDevice(): void {
+    this.state = 'suspended';
+    this.dispatch('error');
+    this.dispatch('statechange');
+  }
+
+  private dispatch(type: string): void {
+    for (const listener of this.listeners.get(type) ?? []) listener({ type } as Event);
   }
 
   createOscillator(): FakeOscillatorNode {
@@ -260,11 +359,13 @@ export class FakeAudioContext {
     this.assertOpen();
     this.resumeCalls += 1;
     this.state = 'running';
+    this.dispatch('statechange');
   }
 
   async close(): Promise<void> {
     this.closeCalls += 1;
     this.state = 'closed';
+    this.dispatch('statechange');
   }
 
   /** Move the clock forward, as a real context's does. */
