@@ -118,19 +118,27 @@ describe('createKeyboard', () => {
     expect(keyboard.read()).toMatchObject({ leftTread: -1, rightTread: 0 });
   });
 
-  it('maps the up and down arrows and I and K to the right tread', () => {
+  it('maps I and K to the right tread', () => {
     const target = new EventTarget();
     const keyboard = keyboardOn(target);
-    for (const code of ['ArrowUp', 'KeyI']) {
-      down(target, code);
-      expect(keyboard.read()).toMatchObject({ leftTread: 0, rightTread: 1 });
-      up(target, code);
-    }
-    for (const code of ['ArrowDown', 'KeyK']) {
-      down(target, code);
-      expect(keyboard.read()).toMatchObject({ leftTread: 0, rightTread: -1 });
-      up(target, code);
-    }
+    down(target, 'KeyI');
+    expect(keyboard.read()).toMatchObject({ leftTread: 0, rightTread: 1 });
+    up(target, 'KeyI');
+    down(target, 'KeyK');
+    expect(keyboard.read()).toMatchObject({ leftTread: 0, rightTread: -1 });
+  });
+
+  it('drives the tank straight on the up and down arrows', () => {
+    // The cluster is a direction pad: left and right already pivot the tank, so
+    // up has to be forward.  Driving one tread from it curved the tank away to
+    // the left on the key a player presses to go straight.
+    const target = new EventTarget();
+    const keyboard = keyboardOn(target);
+    down(target, 'ArrowUp');
+    expect(keyboard.read()).toMatchObject({ leftTread: 1, rightTread: 1 });
+    up(target, 'ArrowUp');
+    down(target, 'ArrowDown');
+    expect(keyboard.read()).toMatchObject({ leftTread: -1, rightTread: -1 });
   });
 
   it('pivots on the left and right arrows', () => {
