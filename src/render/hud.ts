@@ -172,10 +172,14 @@ export function drawRadar(d: VectorDisplay, world: World, blips: RadarBlips): vo
   const bearing = wrapAngle(bearingTo(world.player.pos, target.pos) - world.player.heading);
   const level = blips.levelFor(target.id);
   if (level <= 0) return;
-  // The ROM emits the dot twice to brighten it; one lit point is enough here
-  // because the display rounds its line caps.
+  // `DRADAR` emits the point twice so the beam dwells on it and the phosphor
+  // comes up brighter than a single pass would leave it (original-game.md:127).
+  // On a canvas the second pass composites over the first, which is the same
+  // bargain: one dot, drawn harder.
   const radius = (RADAR_RADIUS * range) / ENEMY_IN_RANGE_UNITS;
-  d.polyline([radarPoint(radius, bearing)], level / INTENSITY_BYTE_MAX);
+  const point = radarPoint(radius, bearing);
+  d.polyline([point], level / INTENSITY_BYTE_MAX);
+  d.polyline([point], level / INTENSITY_BYTE_MAX);
 }
 
 /**

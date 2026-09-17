@@ -150,7 +150,9 @@ describe('drawRadar', () => {
     const enemy = tankAt(ENEMY_IN_RANGE_UNITS / 2, 0);
     const world = worldWith({ enemies: [enemy], radarAngle: TAU / 4 });
     const blip = dots(radar(world));
-    expect(blip).toHaveLength(1);
+    // Emitted twice, as `DRADAR` does, so the dot comes up bright.
+    expect(blip).toHaveLength(2);
+    expect(blip[0]).toEqual(blip[1]);
     expect(round(blip[0]!.x0)).toBe(round(CX + RADAR_RADIUS / 2));
     expect(round(blip[0]!.y0)).toBe(round(CY));
     expect(blip[0]!.intensity).toBeCloseTo(RADAR_BLIP_BRIGHTNESS / INTENSITY_BYTE_MAX, 6);
@@ -246,7 +248,7 @@ describe('createRadarBlips', () => {
     // The sweep is on the enemy again, but the held blip has been faded once, so
     // the dot is dimmer than the sweep alone would make it.
     const lines = dots(radar(swept(), blips));
-    expect(lines).toHaveLength(1);
+    expect(lines).toHaveLength(2);
     expect(lines[0]!.intensity).toBeCloseTo(
       (RADAR_BLIP_BRIGHTNESS - RADAR_BLIP_DECAY) / INTENSITY_BYTE_MAX,
       6,
