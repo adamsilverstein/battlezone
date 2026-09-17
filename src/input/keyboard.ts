@@ -1,7 +1,20 @@
 /**
  * Keyboard fallback for the cabinet's two tread sticks, per the controls table:
- * W/S drive the left tread, the up/down arrows (or I/K) the right tread, the
- * left/right arrows pivot both, Space fires and Enter starts.
+ * W/S drive the left tread and I/K the right one, the arrows drive the tank -
+ * up and down for both treads together, left and right to pivot - Space fires
+ * and Enter starts.
+ *
+ * WHY THE ARROWS DRIVE RATHER THAN HOLD A TREAD
+ * ---------------------------------------------
+ * The cabinet has no control that drives both treads: you push two sticks, and
+ * a keyboard has no way to be honest about that.  What it can do is not lie in
+ * two directions at once.  The left and right arrows already pivot the tank -
+ * both treads, opposite ways - so a player reads the cluster as a direction pad
+ * and presses up for forward; when up drove the right tread alone, the tank
+ * curved away to the left instead, which is the one thing a direction pad must
+ * never do.  The arrows are now the whole pad, which is also what the gamepad's
+ * own d-pad has always done, and W/S with I/K are still the two sticks for
+ * anyone who wants the cabinet's controls.
  */
 import { clampTread, type RawInput } from './gamepad';
 
@@ -9,10 +22,10 @@ import { clampTread, type RawInput } from './gamepad';
 const TREAD_KEYS: Readonly<Record<string, { leftTread: number; rightTread: number }>> = {
   KeyW: { leftTread: 1, rightTread: 0 },
   KeyS: { leftTread: -1, rightTread: 0 },
-  ArrowUp: { leftTread: 0, rightTread: 1 },
-  ArrowDown: { leftTread: 0, rightTread: -1 },
   KeyI: { leftTread: 0, rightTread: 1 },
   KeyK: { leftTread: 0, rightTread: -1 },
+  ArrowUp: { leftTread: 1, rightTread: 1 },
+  ArrowDown: { leftTread: -1, rightTread: -1 },
   ArrowLeft: { leftTread: -1, rightTread: 1 },
   ArrowRight: { leftTread: 1, rightTread: -1 },
 };

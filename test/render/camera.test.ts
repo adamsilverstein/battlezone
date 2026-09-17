@@ -7,6 +7,7 @@ import {
   SCREEN_HALF_HEIGHT,
   SCREEN_SCALE,
   VIEW_WINDOW,
+  WORLD_SIZE,
 } from '../../src/data/constants';
 import type { WireModel } from '../../src/data/types';
 import type { Camera } from '../../src/render/camera';
@@ -142,6 +143,75 @@ describe('drawModel', () => {
     const line = d.lines[0]!;
     expect(Math.min(line.y0, line.y1)).toBeLessThan(0);
     expect(Math.max(line.y0, line.y1)).toBeCloseTo(0, 9);
+  });
+
+  it('keeps a model whole as it nears the draw distance', () => {
+    // ROTPNT decides near and far for the object, once, so every vector of an
+    // accepted object is drawn. Measuring each edge against those planes
+    // instead trimmed the ones that crossed: a tank lost its turret and a box
+    // its far face while both were still in plain sight.
+    const box: WireModel = {
+      name: 'box',
+      vertices: [
+        [-400, -400, -320],
+        [400, -400, -320],
+        [400, 400, -320],
+        [-400, 400, -320],
+      ],
+      edges: [
+        [0, 1],
+        [1, 2],
+        [2, 3],
+        [3, 0],
+      ],
+    };
+    for (const z of [FAR_CLIP_UNITS - 600, FAR_CLIP_UNITS - 100, FAR_CLIP_UNITS - 1]) {
+      const d = createRecordingDisplay();
+      drawModel(d, cam, box, { x: 0, y: 0, z }, { x: 0, y: 0, z: 0 });
+      expect(d.lines).toHaveLength(box.edges.length);
+    }
+    // And past it the whole object goes, rather than the near half of it staying.
+    const gone = createRecordingDisplay();
+    drawModel(gone, cam, box, { x: 0, y: 0, z: FAR_CLIP_UNITS + 1 }, { x: 0, y: 0, z: 0 });
+    expect(gone.lines).toHaveLength(0);
+  });
+
+  it('drops an object that has come inside the near plane, whole', () => {
+    // ROTPNT takes the near plane the same way it takes the far one: the object
+    // goes or stays as one. Driving into something makes it vanish rather than
+    // smearing its near edges across the screen, which is the original's own
+    // behaviour.
+    const d = createRecordingDisplay();
+    drawModel(d, cam, pole, { x: 0, y: 0, z: NEAR_CLIP_UNITS - 1 }, { x: 0, y: 0, z: 0 });
+    expect(d.lines).toHaveLength(0);
+
+    const just = createRecordingDisplay();
+    drawModel(just, cam, pole, { x: 0, y: 0, z: NEAR_CLIP_UNITS + 1 }, { x: 0, y: 0, z: 0 });
+    expect(just.lines).toHaveLength(1);
+  });
+
+  it('never lifts an edge above its own intensity, however close it passes', () => {
+    // An accepted object's edges are drawn wherever its vertices fall, eye side
+    // included, and a negative depth used to turn the cue into a bonus. A canvas
+    // silently drops an alpha over 1 and reuses the last one it was given.
+    expect(depthIntensity(1, -5000)).toBeLessThanOrEqual(1);
+    expect(depthIntensity(1, -5000)).toBeCloseTo(1, 9);
+  });
+
+  it('draws what is in front of it across the seam of the torus', () => {
+    // The world wraps at WORLD_SIZE and every position is stored wrapped, so a
+    // player near the seam has the ground in front of them stored at the other
+    // end of the number line. Measured the long way round, that ground is
+    // 63,000 units away and gets culled; measured the way the rest of the game
+    // measures it, it is a few hundred units ahead.
+    const wrap = (v: number): number =>
+      ((((v + WORLD_SIZE / 2) % WORLD_SIZE) + WORLD_SIZE) % WORLD_SIZE) - WORLD_SIZE / 2;
+    for (const raw of [0, 30000, 32000, 32767]) {
+      const seamCam = { ...cam, pos: { x: 0, z: wrap(raw) } };
+      const d = createRecordingDisplay();
+      drawModel(d, seamCam, pole, { x: 0, y: 0, z: wrap(raw + 2000) }, { x: 0, y: 0, z: 0 });
+      expect(d.lines).toHaveLength(1);
+    }
   });
 
   it('draws nothing for a model behind the camera', () => {

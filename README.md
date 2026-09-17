@@ -26,9 +26,9 @@ blip for the nearest tank or missile; the saucer never appears on it.
 | Action              | Gamepad                     | Keyboard                  |
 | ------------------- | --------------------------- | ------------------------- |
 | Left tread          | Left stick up / down        | W / S                     |
-| Right tread         | Right stick up / down       | Up / Down arrow, or I / K |
+| Right tread         | Right stick up / down       | I / K                     |
+| Drive forward / back| D-pad up / down             | Up / Down arrow           |
 | Pivot left / right  | D-pad left / right          | Left / Right arrow        |
-| Both treads forward | D-pad up                    | W and Up together         |
 | Fire                | A (cross), or right trigger | Space                     |
 | Start               | Start                       | Enter                     |
 
