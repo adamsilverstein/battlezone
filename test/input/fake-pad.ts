@@ -1,6 +1,12 @@
 /** Builds a `Gamepad`-shaped object with the standard layout's 4 axes and 17 buttons. */
 export function fakePad(
-  overrides: { axes?: number[]; buttons?: number[]; connected?: boolean; index?: number } = {},
+  overrides: {
+    axes?: number[];
+    buttons?: number[];
+    connected?: boolean;
+    index?: number;
+    mapping?: GamepadMappingType;
+  } = {},
 ): Gamepad {
   const axes = [0, 0, 0, 0];
   for (const [i, value] of (overrides.axes ?? []).entries()) axes[i] = value;
@@ -10,7 +16,7 @@ export function fakePad(
     id: 'fake pad',
     index: overrides.index ?? 0,
     connected: overrides.connected ?? true,
-    mapping: 'standard',
+    mapping: overrides.mapping ?? 'standard',
     timestamp: 0,
     axes,
     buttons: values.map((value) => ({ pressed: value >= 0.5, touched: value > 0, value })),

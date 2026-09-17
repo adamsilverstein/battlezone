@@ -83,4 +83,24 @@ describe('readGamepad', () => {
     // With a narrow one the first pad already counts as active.
     expect(readGamepad([small, large], { deadZone: 0.1 })?.leftTread).toBeCloseTo(0.2);
   });
+
+  it('prefers a standard-layout pad over one the browser could not map', () => {
+    const odd = fakePad({ mapping: '' as GamepadMappingType, axes: [0, -1] });
+    const standard = fakePad({ axes: [0, 0, 0, -1] });
+    // Both are idle, so the layout decides.
+    expect(readGamepad([odd, standard])).toEqual(readGamepad([standard]));
+  });
+
+  it('reads a non-standard pad rather than ignoring it', () => {
+    // A pad the browser cannot map still reports axes and buttons, and being the
+    // only one plugged in it is the one in the player's hands.
+    const odd = fakePad({ mapping: '' as GamepadMappingType, axes: [0, -1], buttons: pressed(0) });
+    expect(readGamepad([odd])).toMatchObject({ leftTread: 1, fire: true });
+  });
+
+  it('takes the pad in use even when a standard one sits idle', () => {
+    const idle = fakePad();
+    const busy = fakePad({ mapping: '' as GamepadMappingType, buttons: pressed(0) });
+    expect(readGamepad([idle, busy])?.fire).toBe(true);
+  });
 });

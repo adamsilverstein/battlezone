@@ -99,10 +99,25 @@ function isActive(raw: RawInput, deadZone: number): boolean {
 }
 
 /**
- * Reads the first connected pad that is being used, falling back to the first
- * connected pad when they are all idle. Pure: hand it `navigator.getGamepads()`
- * output, which returns null slots for disconnected pads. Returns null when no
- * pad is connected, so a pad arriving later is picked up by simply reading again.
+ * How much a pad deserves to be the one driving the tank: being used beats
+ * sitting idle, and a layout the browser recognises beats one it does not.
+ *
+ * A pad whose `mapping` is not "standard" still reports axes and buttons - they
+ * are simply in whatever order the device sent them - so it is read rather than
+ * ignored. Ignoring it would mean a player with an unrecognised pad and nothing
+ * else plugged in has no controls at all, which is worse than controls that may
+ * be laid out oddly.
+ */
+function rank(pad: Gamepad, raw: RawInput, deadZone: number): number {
+  return (isActive(raw, deadZone) ? 2 : 0) + (pad.mapping === 'standard' ? 1 : 0);
+}
+
+/**
+ * Reads the connected pad most likely to be in the player's hands: the one being
+ * used, preferring the standard layout, and falling back to any connected pad
+ * when they are all idle. Pure: hand it `navigator.getGamepads()` output, which
+ * returns null slots for disconnected pads. Returns null when no pad is
+ * connected, so a pad arriving later is picked up by simply reading again.
  *
  * Tread values stay analogue; `deadZone` only decides which pad is in use.
  */
@@ -111,12 +126,18 @@ export function readGamepad(
   opts: { deadZone?: number } = {},
 ): RawInput | null {
   const deadZone = opts.deadZone ?? DEAD_ZONE;
-  let fallback: RawInput | null = null;
+  let best: RawInput | null = null;
+  let bestRank = -1;
   for (const pad of pads) {
     if (pad === null || !pad.connected) continue;
     const raw = readPad(pad);
-    if (isActive(raw, deadZone)) return raw;
-    fallback ??= raw;
+    const score = rank(pad, raw, deadZone);
+    // Strictly greater, so the first pad wins a tie - the order the browser
+    // reports them in is the only tie-break there is.
+    if (score > bestRank) {
+      best = raw;
+      bestRank = score;
+    }
   }
-  return fallback;
+  return best;
 }
