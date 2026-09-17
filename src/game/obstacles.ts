@@ -18,6 +18,7 @@
  * shared type is the contract, so the mismatch is documented rather than fixed.)
  */
 
+import type { ObstacleModel } from '../data/constants';
 import {
   HEADING_UNITS_PER_TURN,
   OBSTACLES,
@@ -29,7 +30,7 @@ import { TAU, wrapAngle } from '../engine/math';
 import { wrapCoordinate } from './collision';
 import type { Obstacle, ObstacleKind, Rng } from './types';
 
-/** ROM model name for each shared obstacle kind, and the reverse. */
+/** The ROM model name - and so the wireframe in `data/models.ts` - for each kind. */
 export const OBSTACLE_MODEL_BY_KIND = {
   /** Narrow pyramid, object $00. */
   pyramid: 'pyramid',
@@ -39,13 +40,11 @@ export const OBSTACLE_MODEL_BY_KIND = {
   tallCube: 'box',
   /** Short box, object $0f - the one shells fly over. */
   cube: 'boxShort',
-} as const satisfies Record<ObstacleKind, string>;
-
-type RomModel = (typeof OBSTACLE_MODEL_BY_KIND)[ObstacleKind];
+} as const satisfies Record<ObstacleKind, ObstacleModel>;
 
 const KIND_BY_MODEL = Object.fromEntries(
   Object.entries(OBSTACLE_MODEL_BY_KIND).map(([kind, model]) => [model, kind]),
-) as Record<RomModel, ObstacleKind>;
+) as Record<ObstacleModel, ObstacleKind>;
 
 /**
  * One `TANGLE` unit in radians.  The ROM's angles count the opposite way round
