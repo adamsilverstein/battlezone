@@ -86,7 +86,8 @@ export function screenToCanvas(t: LetterboxTransform, x: number, y: number): [nu
   ];
 }
 
-function pushLine(lines: RecordedLine[]): VectorDisplay['polyline'] {
+/** The polyline-to-segments expansion, shared by both displays. */
+function polylineInto(lines: RecordedLine[]): VectorDisplay['polyline'] {
   return (points, intensity = 1) => {
     if (points.length === 0) return;
     if (points.length === 1) {
@@ -108,13 +109,15 @@ export function createRecordingDisplay(): VectorDisplay & {
   clear(): void;
 } {
   const lines: RecordedLine[] = [];
-  const polyline = pushLine(lines);
+  const clear = (): void => {
+    lines.length = 0;
+  };
   return {
     lines,
-    clear: () => void lines.splice(0, lines.length),
-    beginFrame: () => void lines.splice(0, lines.length),
+    clear,
+    beginFrame: clear,
     line: (x0, y0, x1, y1, intensity = 1) => void lines.push({ x0, y0, x1, y1, intensity }),
-    polyline,
+    polyline: polylineInto(lines),
     endFrame: () => {},
     width: WIDTH,
     height: HEIGHT,
@@ -130,7 +133,6 @@ export function createCanvasDisplay(
   const overlay = opts?.overlay ?? OVERLAY_ENABLED;
 
   const lines: RecordedLine[] = [];
-  const polyline = pushLine(lines);
   let transform = letterboxTransform(canvas.clientWidth, canvas.clientHeight);
   let sized = '';
 
@@ -174,7 +176,7 @@ export function createCanvasDisplay(
       lines.length = 0;
     },
     line: (x0, y0, x1, y1, intensity = 1) => void lines.push({ x0, y0, x1, y1, intensity }),
-    polyline,
+    polyline: polylineInto(lines),
     endFrame(): void {
       ctx.globalAlpha = 1;
       ctx.fillStyle = '#000';

@@ -692,9 +692,6 @@ export const GROUND_PLANE_UNITS = -320;
 export const SCREEN_HALF_WIDTH = 512;
 export const SCREEN_HALF_HEIGHT = 384;
 
-/** Aspect ratio the logical display is letterboxed at. */
-export const DISPLAY_ASPECT = (SCREEN_HALF_WIDTH * 2) / (SCREEN_HALF_HEIGHT * 2);
-
 /** The horizon line's screen y (docs/reference/original-game.md section 1). */
 export const HORIZON_Y = 0;
 
