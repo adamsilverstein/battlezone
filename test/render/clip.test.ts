@@ -1,5 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { clipSegment } from '../../src/render/clip';
+import { SCREEN_HALF_HEIGHT, SCREEN_HALF_WIDTH, VIEW_WINDOW } from '../../src/data/constants';
+import { VIEW_CLIP, clipSegment } from '../../src/render/clip';
+
+describe('VIEW_CLIP', () => {
+  it('keeps the ROM window horizontally but stops at the bottom of the tube', () => {
+    expect(VIEW_CLIP.left).toBe(VIEW_WINDOW.left);
+    expect(VIEW_CLIP.right).toBe(VIEW_WINDOW.right);
+    expect(VIEW_CLIP.top).toBe(VIEW_WINDOW.top);
+    // VIEW_WINDOW.bottom is -508, which is off the bottom of a 4:3 screen.
+    expect(VIEW_CLIP.bottom).toBe(-SCREEN_HALF_HEIGHT);
+  });
+
+  it('never reaches outside the visible display area', () => {
+    expect(VIEW_CLIP.left).toBeGreaterThanOrEqual(-SCREEN_HALF_WIDTH);
+    expect(VIEW_CLIP.right).toBeLessThanOrEqual(SCREEN_HALF_WIDTH);
+    expect(VIEW_CLIP.top).toBeLessThanOrEqual(SCREEN_HALF_HEIGHT);
+  });
+});
 
 const rect = { left: -100, right: 100, bottom: -100, top: 100 };
 

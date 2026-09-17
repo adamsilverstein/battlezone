@@ -10,20 +10,40 @@ interface Stroke {
   points: [number, number][];
 }
 
+interface Fill {
+  style: string;
+  rect: [number, number, number, number];
+  /** The horizontal scale in force when the fill happened. */
+  scale: number;
+}
+
 /** A 2D context stub that records what each stroke() was asked to draw. */
 function stubCanvas(cssWidth = 1024, cssHeight = 768) {
   const strokes: Stroke[] = [];
-  const fills: string[] = [];
+  const fills: Fill[] = [];
+  const clips: [number, number, number, number][] = [];
   let points: [number, number][] = [];
+  let rect: [number, number, number, number] = [0, 0, 0, 0];
+  let scale = 1;
   const ctx = {
     lineWidth: 1,
     globalAlpha: 1,
     strokeStyle: '#fff',
     fillStyle: '#000',
     lineCap: 'butt' as CanvasLineCap,
-    setTransform(): void {},
-    fillRect(): void {
-      fills.push(String(ctx.fillStyle));
+    setTransform(a: number): void {
+      scale = a;
+    },
+    save(): void {},
+    restore(): void {},
+    rect(x: number, y: number, w: number, h: number): void {
+      rect = [x, y, w, h];
+    },
+    clip(): void {
+      clips.push(rect);
+    },
+    fillRect(x: number, y: number, w: number, h: number): void {
+      fills.push({ style: String(ctx.fillStyle), rect: [x, y, w, h], scale });
     },
     beginPath(): void {
       points = [];
@@ -48,7 +68,7 @@ function stubCanvas(cssWidth = 1024, cssHeight = 768) {
   Object.defineProperty(canvas, 'clientWidth', { value: cssWidth, configurable: true });
   Object.defineProperty(canvas, 'clientHeight', { value: cssHeight, configurable: true });
   canvas.getContext = (() => ctx) as unknown as HTMLCanvasElement['getContext'];
-  return { canvas, strokes, fills };
+  return { canvas, strokes, fills, clips };
 }
 
 describe('createCanvasDisplay', () => {
@@ -131,12 +151,36 @@ describe('createCanvasDisplay', () => {
     expect(new Set(strokes.map((s) => s.strokeStyle)).size).toBe(1);
   });
 
-  it('clears the frame to black', () => {
+  it('clears the whole backing store to black under the identity transform', () => {
     const { canvas, fills } = stubCanvas();
     const d = createCanvasDisplay(canvas);
     d.beginFrame();
     d.endFrame();
-    expect(fills[0]).toBe('#000');
+    expect(fills).toHaveLength(1);
+    expect(fills[0]!.style).toBe('#000');
+    expect(fills[0]!.scale).toBe(1);
+    expect(fills[0]!.rect).toEqual([0, 0, canvas.width, canvas.height]);
+  });
+
+  it('still clears every pixel at a device pixel ratio below 1', () => {
+    window.devicePixelRatio = 0.75;
+    const { canvas, fills } = stubCanvas(1000, 750);
+    const d = createCanvasDisplay(canvas);
+    d.beginFrame();
+    d.endFrame();
+    // A DPR-scaled clear would cover only 0.75 of the store in each direction.
+    expect(fills[0]!.rect).toEqual([0, 0, canvas.width, canvas.height]);
+    expect(fills[0]!.rect[2]).toBeGreaterThanOrEqual(canvas.width);
+    expect(fills[0]!.rect[3]).toBeGreaterThanOrEqual(canvas.height);
+  });
+
+  it('clips the beam to the letterboxed picture', () => {
+    const { canvas, clips } = stubCanvas(2048, 768);
+    const d = createCanvasDisplay(canvas);
+    d.beginFrame();
+    d.line(0, 0, 10, 0);
+    d.endFrame();
+    expect(clips).toEqual([[512, 0, 1024, 768]]);
   });
 
   it('throws when the canvas has no 2D context', () => {

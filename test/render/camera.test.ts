@@ -4,6 +4,7 @@ import {
   EYE_HEIGHT_UNITS,
   FAR_CLIP_UNITS,
   NEAR_CLIP_UNITS,
+  SCREEN_HALF_HEIGHT,
   SCREEN_SCALE,
   VIEW_WINDOW,
 } from '../../src/data/constants';
@@ -97,6 +98,14 @@ describe('projectSegment', () => {
     const seg = projectSegment(cam, { x: 0, y: 0, z: 4000 }, { x: 0, y: high, z: 4000 })!;
     expect(seg).not.toBeNull();
     expect(Math.max(seg.y0, seg.y1)).toBeLessThanOrEqual(VIEW_WINDOW.top + 1e-6);
+  });
+
+  it('stops at the bottom of the visible screen, not the ROM window', () => {
+    // VIEW_WINDOW reaches to -508, which is inside the letterbox bar on a 4:3
+    // display, so a steep near edge must be cut at -384 instead.
+    const seg = projectSegment(cam, { x: 0, y: 0, z: 4000 }, { x: 0, y: -200000, z: 4000 })!;
+    expect(seg).not.toBeNull();
+    expect(Math.min(seg.y0, seg.y1)).toBeCloseTo(-SCREEN_HALF_HEIGHT, 6);
   });
 });
 

@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   EYE_HEIGHT_UNITS,
   HORIZON_Y,
-  VIEW_WINDOW,
   VOLCANO_CRATER_Y,
   VOLCANO_ROCK_FALL_LIMIT,
 } from '../../src/data/constants';
 import { TAU } from '../../src/engine/math';
 import type { Camera } from '../../src/render/camera';
+import { VIEW_CLIP } from '../../src/render/clip';
 import { drawHorizon } from '../../src/render/scene';
 import { createRecordingDisplay, type RecordedLine } from '../../src/render/vectorDisplay';
 
@@ -39,8 +39,8 @@ describe('drawHorizon', () => {
   it('draws the horizon line across the screen at y = 0', () => {
     const horizon = draw(0).filter(isHorizonLine);
     expect(horizon).toHaveLength(1);
-    expect(Math.min(horizon[0]!.x0, horizon[0]!.x1)).toBeCloseTo(VIEW_WINDOW.left, 6);
-    expect(Math.max(horizon[0]!.x0, horizon[0]!.x1)).toBeCloseTo(VIEW_WINDOW.right, 6);
+    expect(Math.min(horizon[0]!.x0, horizon[0]!.x1)).toBeCloseTo(VIEW_CLIP.left, 6);
+    expect(Math.max(horizon[0]!.x0, horizon[0]!.x1)).toBeCloseTo(VIEW_CLIP.right, 6);
   });
 
   it('draws mountains above the horizon', () => {
@@ -49,17 +49,17 @@ describe('drawHorizon', () => {
     expect(mountains.every((l) => l.y0 >= 0 && l.y1 >= 0)).toBe(true);
   });
 
-  it('keeps everything inside the 3D view window at every heading', () => {
+  it('keeps everything inside the visible 3D view area at every heading', () => {
     for (let i = 0; i < 64; i += 1) {
       for (const l of draw(i / 64, i)) {
         for (const [x, y] of [
           [l.x0, l.y0],
           [l.x1, l.y1],
         ]) {
-          expect(x!).toBeGreaterThanOrEqual(VIEW_WINDOW.left - 1e-6);
-          expect(x!).toBeLessThanOrEqual(VIEW_WINDOW.right + 1e-6);
-          expect(y!).toBeGreaterThanOrEqual(VIEW_WINDOW.bottom - 1e-6);
-          expect(y!).toBeLessThanOrEqual(VIEW_WINDOW.top + 1e-6);
+          expect(x!).toBeGreaterThanOrEqual(VIEW_CLIP.left - 1e-6);
+          expect(x!).toBeLessThanOrEqual(VIEW_CLIP.right + 1e-6);
+          expect(y!).toBeGreaterThanOrEqual(VIEW_CLIP.bottom - 1e-6);
+          expect(y!).toBeLessThanOrEqual(VIEW_CLIP.top + 1e-6);
         }
       }
     }
@@ -120,7 +120,7 @@ describe('drawHorizon', () => {
       expect(y0).toBe(y1);
       // Within the arc a rock can reach: up from the crater, then back down.
       expect(y0).toBeGreaterThan(VOLCANO_CRATER_Y - VOLCANO_ROCK_FALL_LIMIT - 1);
-      expect(y0).toBeLessThanOrEqual(VIEW_WINDOW.top);
+      expect(y0).toBeLessThanOrEqual(VIEW_CLIP.top);
     }
   });
 });

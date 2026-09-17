@@ -692,6 +692,19 @@ export const GROUND_PLANE_UNITS = -320;
 export const SCREEN_HALF_WIDTH = 512;
 export const SCREEN_HALF_HEIGHT = 384;
 
+/**
+ * What the tube actually shows.  The ROM's clipping windows are squarer than the
+ * 4:3 monitor - `VIEW_WINDOW` reaches down to -508 - because the hardware window
+ * circuit worked in deflection units, not visible ones.  Anything drawn outside
+ * this rectangle was off the screen.
+ */
+export const DISPLAY_WINDOW = {
+  left: -SCREEN_HALF_WIDTH,
+  right: SCREEN_HALF_WIDTH,
+  bottom: -SCREEN_HALF_HEIGHT,
+  top: SCREEN_HALF_HEIGHT,
+} as const;
+
 /** The horizon line's screen y (docs/reference/original-game.md section 1). */
 export const HORIZON_Y = 0;
 

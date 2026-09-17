@@ -11,12 +11,30 @@
  * rectangle, so one pass is enough.
  */
 
+import { DISPLAY_WINDOW, VIEW_WINDOW } from '../data/constants';
+
 export interface ClipRect {
   readonly left: number;
   readonly right: number;
   readonly bottom: number;
   readonly top: number;
 }
+
+function intersect(a: ClipRect, b: ClipRect): ClipRect {
+  return {
+    left: Math.max(a.left, b.left),
+    right: Math.min(a.right, b.right),
+    bottom: Math.max(a.bottom, b.bottom),
+    top: Math.min(a.top, b.top),
+  };
+}
+
+/**
+ * Where the 3D view may draw: the ROM's window for the battlefield, narrowed to
+ * what is on the screen.  `VIEW_WINDOW` alone reaches 124 units below the bottom
+ * of the tube, which on a canvas would spill into the letterbox bar.
+ */
+export const VIEW_CLIP: ClipRect = intersect(VIEW_WINDOW, DISPLAY_WINDOW);
 
 /**
  * Clips a segment to `rect`.  Returns the trimmed endpoints, or null when the

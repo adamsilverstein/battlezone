@@ -15,8 +15,9 @@
  * ------------
  * `screen = SCREEN_SCALE * view / depth`, so the 45-degree field of view (the
  * ROM's `|Y'| < X'` test) lands on x = +/-512, the half width of the display.
- * Segments are clipped to `VIEW_WINDOW`, the window the hardware enforced for the
- * 3D view; the HUD draws above it and does its own thing.
+ * Segments are clipped to `VIEW_CLIP`, the window the hardware enforced for the
+ * 3D view narrowed to what is actually on the tube; the HUD draws above it and
+ * does its own thing.
  */
 
 import {
@@ -27,12 +28,11 @@ import {
   INTENSITY_MAX,
   NEAR_CLIP_UNITS,
   SCREEN_SCALE,
-  VIEW_WINDOW,
 } from '../data/constants';
 import type { WireModel } from '../data/types';
 import type { Vec2, Vec3 } from '../game/types';
 import { rotateY } from '../engine/math';
-import { clipSegment } from './clip';
+import { VIEW_CLIP, clipSegment } from './clip';
 import type { VectorDisplay } from './vectorDisplay';
 
 export interface Camera {
@@ -112,7 +112,7 @@ function clipAndProject(
 
   const sa = projectView(va);
   const sb = projectView(vb);
-  const clipped = clipSegment(sa.x, sa.y, sb.x, sb.y, VIEW_WINDOW);
+  const clipped = clipSegment(sa.x, sa.y, sb.x, sb.y, VIEW_CLIP);
   if (!clipped) return null;
   return { x0: clipped[0], y0: clipped[1], x1: clipped[2], y1: clipped[3] };
 }

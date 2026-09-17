@@ -134,9 +134,14 @@ export function createCanvasDisplay(
 
   const lines: RecordedLine[] = [];
   let transform = letterboxTransform(canvas.clientWidth, canvas.clientHeight);
+  let pixelRatio = 1;
   let sized = '';
 
-  /** Match the backing store to the viewport and the device pixel ratio. */
+  /**
+   * Match the backing store to the viewport and the device pixel ratio.  After
+   * this the context is scaled by the ratio, so everything else works in CSS
+   * pixels.
+   */
   const resize = (): void => {
     const dpr = globalThis.devicePixelRatio || 1;
     const cssWidth = canvas.clientWidth;
@@ -144,6 +149,7 @@ export function createCanvasDisplay(
     const key = `${cssWidth}x${cssHeight}@${dpr}`;
     if (key === sized) return;
     sized = key;
+    pixelRatio = dpr;
     transform = letterboxTransform(cssWidth, cssHeight);
     canvas.width = Math.max(1, Math.round((cssWidth || WIDTH) * dpr));
     canvas.height = Math.max(1, Math.round((cssHeight || HEIGHT) * dpr));
@@ -180,11 +186,29 @@ export function createCanvasDisplay(
     endFrame(): void {
       ctx.globalAlpha = 1;
       ctx.fillStyle = '#000';
+      // Clear in device pixels with the identity transform: a rounded-up backing
+      // store, or a device pixel ratio below 1, would otherwise leave a stale
+      // strip along the right and bottom edges.
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+
+      // Keep the beam inside the letterboxed picture; the ROM's windows are
+      // squarer than the tube, so vectors can sit below the visible area.
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(
+        transform.offsetX,
+        transform.offsetY,
+        WIDTH * transform.scale,
+        HEIGHT * transform.scale,
+      );
+      ctx.clip();
       // Round caps make zero-length dot vectors visible and soften the strokes.
       ctx.lineCap = 'round';
       pass(GLOW_WIDTH, GLOW_ALPHA);
       pass(BRIGHT_WIDTH, BRIGHT_ALPHA);
+      ctx.restore();
       ctx.globalAlpha = 1;
     },
     width: WIDTH,
