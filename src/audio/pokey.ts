@@ -25,7 +25,7 @@ export const POKEY_CLOCK_15K = 15700;
 export const NMI_HZ = 250;
 
 /** Distortion selected by the high nibble of AUDC. */
-export type PokeyDistortion = 'tone' | 'poly4' | 'poly17';
+export type PokeyDistortion = 'tone' | 'poly4' | 'poly5' | 'poly17';
 
 /** One chunk of a POKEY register data stream. */
 export interface PokeyChunk {
@@ -53,6 +53,14 @@ export function pokeyFrequency(audf: number, clock: number = POKEY_CLOCK_64K): n
   return clock / (2 * ((audf & 0xff) + 1));
 }
 
+/**
+ * The divider's own output rate, which is what latches the polynomial counters.
+ * The divider toggles the square wave, so this is twice the audible frequency.
+ */
+export function pokeyDividerClock(audf: number, clock: number = POKEY_CLOCK_64K): number {
+  return clock / ((audf & 0xff) + 1);
+}
+
 /** AUDC is `NNNFVVVV`: the low nibble is volume 0-15. */
 export function audcVolume(audc: number): number {
   return audc & 0x0f;
@@ -64,26 +72,35 @@ export function volumeToGain(volume: number): number {
 }
 
 /**
- * Maps the AUDC high nibble onto a synthesizable waveform.
+ * Maps the AUDC high nibble onto a synthesizable waveform, following the POKEY
+ * datasheet's distortion table:
  *
- * Per the POKEY datasheet the high bits select $A/$E pure tone, $C 4-bit poly,
- * $8 17-bit poly, and $0/$2/$4/$6 a 5-bit poly gating a second poly. We have no
- * 5-bit-gated noise source, so those combinations collapse onto the finer poly
- * they gate ($0/$4 -> 17-bit, $2/$6 -> 4-bit); Battlezone only ever writes $A_
- * and $C_, so the approximation is never actually heard.
+ * | Bits 7-5 | Datasheet | Here |
+ * | --- | --- | --- |
+ * | `$00` | 5-bit poly gating 17-bit poly | `poly17` |
+ * | `$20` | 5-bit poly only | `poly5` |
+ * | `$40` | 5-bit poly gating 4-bit poly | `poly4` |
+ * | `$60` | 5-bit poly only | `poly5` |
+ * | `$80` | 17-bit poly | `poly17` |
+ * | `$a0` | pure tone | `tone` |
+ * | `$c0` | 4-bit poly | `poly4` |
+ * | `$e0` | pure tone | `tone` |
+ *
+ * The two gated combinations take the finer poly they gate, since we play one
+ * counter per voice rather than gating one with another. Battlezone only ever
+ * writes `$a_` and `$c1`, so that approximation is never actually heard.
  */
 export function audcDistortion(audc: number): PokeyDistortion {
   switch (audc & 0xe0) {
     case 0xa0:
     case 0xe0:
       return 'tone';
+    case 0x40:
     case 0xc0:
       return 'poly4';
-    case 0x80:
-      return 'poly17';
     case 0x20:
     case 0x60:
-      return 'poly4';
+      return 'poly5';
     default:
       return 'poly17';
   }

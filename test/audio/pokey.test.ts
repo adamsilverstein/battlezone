@@ -6,6 +6,7 @@ import {
   audcDistortion,
   audcVolume,
   expandPokeyStream,
+  pokeyDividerClock,
   pokeyFrequency,
   pokeyStreamDuration,
   volumeToGain,
@@ -44,13 +45,26 @@ describe('AUDC decoding', () => {
     expect(volumeToGain(11)).toBeCloseTo(11 / 15, 6);
   });
 
-  it('reads distortion from the high nibble', () => {
+  it('reads distortion from the high nibble, per the datasheet table', () => {
     expect(audcDistortion(0xa3)).toBe('tone');
     expect(audcDistortion(0xe0)).toBe('tone');
     expect(audcDistortion(0xc1)).toBe('poly4');
     expect(audcDistortion(0x8f)).toBe('poly17');
+    // $00 is 5-bit gating 17-bit, $40 is 5-bit gating 4-bit: each takes the
+    // finer poly it gates. $20 and $60 are 5-bit only.
     expect(audcDistortion(0x0f)).toBe('poly17');
-    expect(audcDistortion(0x2f)).toBe('poly4');
+    expect(audcDistortion(0x4f)).toBe('poly4');
+    expect(audcDistortion(0x2f)).toBe('poly5');
+    expect(audcDistortion(0x6f)).toBe('poly5');
+  });
+});
+
+describe('pokeyDividerClock', () => {
+  it('is the divider output, twice the audible frequency', () => {
+    // The polynomial counters are clocked by the divider, which toggles the
+    // square wave, so the bit rate is twice the tone frequency.
+    expect(pokeyDividerClock(0x23)).toBeCloseTo(POKEY_CLOCK_64K / 36, 6);
+    expect(pokeyDividerClock(0x23)).toBeCloseTo(2 * pokeyFrequency(0x23), 6);
   });
 });
 

@@ -11,7 +11,8 @@ export type ParamMethod =
   | 'linearRampToValueAtTime'
   | 'exponentialRampToValueAtTime'
   | 'setTargetAtTime'
-  | 'cancelScheduledValues';
+  | 'cancelScheduledValues'
+  | 'cancelAndHoldAtTime';
 
 export interface ParamChange {
   method: ParamMethod;
@@ -51,9 +52,41 @@ export class FakeAudioParam {
     return this;
   }
 
+  /** Anchors an automation curve at its current value. */
+  cancelAndHoldAtTime(time: number): this {
+    this.changes.push({ method: 'cancelAndHoldAtTime', value: this.value, time });
+    return this;
+  }
+
   /** Values in scheduling order, handy for asserting on a swept stream. */
   scheduledValues(): number[] {
-    return this.changes.filter((c) => c.method !== 'cancelScheduledValues').map((c) => c.value);
+    return this.changes
+      .filter((c) => c.method !== 'cancelScheduledValues' && c.method !== 'cancelAndHoldAtTime')
+      .map((c) => c.value);
+  }
+
+  /**
+   * The effective schedule: events still standing once cancellations have been
+   * applied. `cancelScheduledValues` and `cancelAndHoldAtTime` both drop events
+   * at or after their time, so this is what the parameter would really do.
+   */
+  schedule(): ParamChange[] {
+    const standing: ParamChange[] = [];
+    for (const change of this.changes) {
+      if (change.method === 'cancelScheduledValues' || change.method === 'cancelAndHoldAtTime') {
+        for (let i = standing.length - 1; i >= 0; i -= 1) {
+          if ((standing[i] as ParamChange).time >= change.time) standing.splice(i, 1);
+        }
+        continue;
+      }
+      standing.push(change);
+    }
+    return standing;
+  }
+
+  /** Just the scheduling methods, in order. */
+  methods(): ParamMethod[] {
+    return this.changes.map((c) => c.method);
   }
 
   private record(method: ParamMethod, value: number, time: number): this {
@@ -98,14 +131,17 @@ export class FakeAudioNode {
 
 export class FakeScheduledSource extends FakeAudioNode {
   startTime: number | null = null;
+  /** Offset into the buffer passed to start(), when the caller gave one. */
+  startOffset: number | null = null;
   stopTime: number | null = null;
   startCalls = 0;
   stopCalls = 0;
   onended: (() => void) | null = null;
 
-  start(when = 0): void {
+  start(when = 0, offset?: number): void {
     this.startCalls += 1;
     this.startTime = when;
+    this.startOffset = offset ?? null;
   }
 
   stop(when = 0): void {

@@ -1,13 +1,9 @@
 /**
  * Turns game events and the per-frame audio snapshot into sound.
  *
- * The original's mixer is four POKEY channels plus a handful of discrete
- * circuits, each of which can only make one sound at a time, so this module
- * models the same fixed set of slots: starting a sound on a slot cuts off
- * whatever was there. That reproduces the reference's stomping behaviour (the
- * radar ping cutting off the new-enemy alert, the saucer siren pausing for
- * anything else on channel 1) and caps the number of simultaneous voices at one
- * per slot by construction.
+ * One-shot sounds go through `channels.ts`, which models the original's
+ * one-sound-at-a-time circuits; this module owns the continuous voices (engine,
+ * saucer siren, missile buzz) and the event and snapshot mapping.
  *
  * Nothing here touches the DOM: the only outside world is the injected
  * AudioContext factory.
@@ -28,7 +24,8 @@
  */
 
 import type { AudioSnapshot, GameEvent } from '../game/types';
-import { createSynth, type Synth, type Voice } from './synth';
+import { createChannels, type Channels, type Slot } from './channels';
+import { anchorAutomation, createSynth, type Synth, type Voice } from './synth';
 import { playCannon } from './sounds/cannon';
 import { playCollisionWarble } from './sounds/collisionWarble';
 import { playEnemyAlert } from './sounds/enemyAlert';
@@ -39,7 +36,12 @@ import { playFanfare } from './sounds/fanfare';
 import { playRadarPing } from './sounds/radarPing';
 import { playSaucerHit } from './sounds/saucerHit';
 import { startEngine, type EngineVoice } from './sounds/engine';
-import { startMissileBuzz, type MissileBuzzVoice } from './sounds/missileBuzz';
+import {
+  FAR_SPAWN_DISTANCE,
+  buzzVolume,
+  startMissileBuzz,
+  type MissileBuzzVoice,
+} from './sounds/missileBuzz';
 import { startSaucerHover, type SaucerHoverVoice } from './sounds/saucerHover';
 
 export interface AudioSystem {
@@ -54,28 +56,8 @@ export interface AudioSystem {
 /** Headroom so several voices at once do not clip. */
 const MASTER_LEVEL = 0.7;
 
-/** Missiles spawn at the far distance ($5fff), which is where the buzz starts. */
-const FAR_SPAWN_DISTANCE = 0x5fff;
-
-/**
- * AUDC3/AUDC4 come from the missile's distance high byte: shifted right 3,
- * masked to 0-15 and inverted, so nearer is louder, and silent once bit 7 of the
- * high byte is set, meaning too far to hear (reference section 5, "Missile
- * buzz"). At the far spawn distance that lands on volume 4; at zero distance, 15.
- */
-function buzzVolume(distance: number | null): number {
-  if (distance === null) return 0;
-  const high = Math.floor(Math.max(0, distance) / 256);
-  if ((high & 0x80) !== 0) return 0;
-  return 15 - ((high >> 3) & 0x0f);
-}
-
-/**
- * One slot per one-shot circuit: POKEY channels 1 and 2 and the two discrete
- * one-shots. The continuous voices - the engine, the saucer siren and the
- * missile buzz on POKEY channels 3 and 4 - are held on their own.
- */
-type Slot = 'pokey1' | 'pokey2' | 'cannon' | 'explosion';
+/** Short fade on mute and unmute, so the mute itself cannot click. */
+export const MUTE_RAMP_SECONDS = 0.015;
 
 function defaultContextFactory(): AudioContext {
   const globals = globalThis as {
@@ -93,9 +75,9 @@ export function createAudioSystem(
   let ctx: AudioContext | null = null;
   let master: GainNode | null = null;
   let synth: Synth | null = null;
+  let channels: Channels | null = null;
   let muted = false;
 
-  const slots = new Map<Slot, Voice>();
   let engine: EngineVoice | null = null;
   let hover: SaucerHoverVoice | null = null;
   let buzz: MissileBuzzVoice | null = null;
@@ -112,33 +94,22 @@ export function createAudioSystem(
     return ctx ? ctx.currentTime : 0;
   }
 
-  /**
-   * Starts a sound on its slot (or slots, for the two-channel fanfare), cutting
-   * off whatever those slots were playing.
-   */
+  /** Starts a sound on its slot, pausing the siren when it takes channel 1. */
   function play(
     slot: Slot | readonly Slot[],
     make: (synth: Synth, at: number) => Voice,
     at?: number,
   ): Voice | null {
-    const active = ready();
-    if (!active) return null;
+    if (!ready() || !channels) return null;
     const start = at ?? now();
-    const claimed = typeof slot === 'string' ? [slot] : slot;
-    try {
-      for (const claim of claimed) slots.get(claim)?.stop(start);
-      const voice = make(active, start);
-      for (const claim of claimed) slots.set(claim, voice);
-      // The saucer siren is the lowest priority on channel 1 and pauses while
-      // anything else uses the channel.
-      if (claimed.includes('pokey1') && hover && Number.isFinite(voice.endTime)) {
-        hover.suppress(start, voice.endTime);
-      }
-      return voice;
-    } catch {
-      // The context is closed or out of resources; stay silent.
-      return null;
+    const voice = channels.play(slot, make, start);
+    // The saucer siren is the lowest priority on channel 1 and pauses while
+    // anything else uses the channel.
+    const takesChannel1 = typeof slot === 'string' ? slot === 'pokey1' : slot.includes('pokey1');
+    if (voice && takesChannel1 && hover && Number.isFinite(voice.endTime)) {
+      hover.suppress(start, voice.endTime);
     }
+    return voice;
   }
 
   function stopVoice(voice: Voice | null, at: number): void {
@@ -154,6 +125,14 @@ export function createAudioSystem(
     engine = null;
   }
 
+  /** A siren that appears mid-effect starts down, since channel 1 is taken. */
+  function startHover(active: Synth, at: number): void {
+    if (hover) return;
+    hover = startSaucerHover(active, at);
+    const busyUntil = channels?.busyUntil('pokey1') ?? 0;
+    if (busyUntil > at) hover.suppress(at, busyUntil);
+  }
+
   function stopHover(at: number): void {
     stopVoice(hover, at);
     hover = null;
@@ -165,8 +144,7 @@ export function createAudioSystem(
   }
 
   function stopAll(at: number): void {
-    for (const voice of slots.values()) stopVoice(voice, at);
-    slots.clear();
+    channels?.stopAll(at);
     stopEngine(at);
     stopHover(at);
     stopBuzz(at);
@@ -184,7 +162,7 @@ export function createAudioSystem(
   }
 
   /**
-   * The collision warble, with the "merp" queued behind it on channel 2. The
+   * The collision warble, with the "merp" queued behind it on channel 1. The
    * world reports `motionBlocked` for as long as the tank is against a block, so
    * the warble waits for the previous one to finish rather than restarting every
    * tick. Anything else holding channel 1 is fair game to interrupt: the ROM has
@@ -196,7 +174,20 @@ export function createAudioSystem(
     const warble = play('pokey1', playCollisionWarble, at);
     if (!warble) return;
     warbleEndsAt = warble.endTime;
-    play('pokey2', playMerp, warble.endTime);
+    // The reference's channel table and the effect's AUDF1/AUDC1 data both put
+    // the merp on channel 1, right behind the warble it answers.
+    play('pokey1', playMerp, warble.endTime);
+  }
+
+  /**
+   * The fanfare is two voices at once, so it holds both POKEY channels, and the
+   * reference has a loud ~1 s explosion follow it once it finishes - the 100K and
+   * high-score boom.
+   */
+  function playFanfareAndBoom(): void {
+    const fanfare = play(['pokey1', 'pokey2'], playFanfare);
+    if (!fanfare) return;
+    play('explosion', (s, at) => playExplosion(s, at, true), fanfare.endTime);
   }
 
   return {
@@ -210,6 +201,7 @@ export function createAudioSystem(
           ctx = created;
           master = gain;
           synth = createSynth(created, gain);
+          channels = createChannels(synth);
         } catch {
           ctx = null;
           master = null;
@@ -262,8 +254,7 @@ export function createAudioSystem(
           play('pokey2', playRadarPing);
           break;
         case 'fanfare':
-          // The fanfare is two voices at once, so it holds both channels.
-          play(['pokey1', 'pokey2'], playFanfare);
+          playFanfareAndBoom();
           break;
         case 'motionBlocked':
           playCollision();
@@ -297,7 +288,7 @@ export function createAudioSystem(
           stopBuzz(at);
         }
 
-        if (snapshot.saucerActive) hover ??= startSaucerHover(active, at);
+        if (snapshot.saucerActive) startHover(active, at);
         else stopHover(at);
       } catch {
         // Never let audio break a frame.
@@ -308,9 +299,12 @@ export function createAudioSystem(
     setMuted(m: boolean): void {
       muted = m;
       if (!ctx || !master) return;
-      if (m) stopAll(now());
+      const at = now();
+      // Fade rather than flip, and let the voices ring out over the fade.
+      if (m) stopAll(at + MUTE_RAMP_SECONDS);
       try {
-        master.gain.value = m ? 0 : MASTER_LEVEL;
+        anchorAutomation(master.gain, at);
+        master.gain.linearRampToValueAtTime(m ? 0 : MASTER_LEVEL, at + MUTE_RAMP_SECONDS);
       } catch {
         // The context has gone; nothing left to mute.
       }

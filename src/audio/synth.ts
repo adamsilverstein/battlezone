@@ -11,6 +11,7 @@ import {
   audcDistortion,
   audcVolume,
   expandPokeyStream,
+  pokeyDividerClock,
   pokeyFrequency,
   pokeyStreamDuration,
   volumeToGain,
@@ -18,6 +19,20 @@ import {
 
 /** Gain floor for exponential ramps, which cannot reach zero. */
 const SILENCE = 0.0001;
+
+/**
+ * Anchors an automation curve at its current value before a new ramp, so a ramp
+ * that interrupts another starts where the first had got to instead of finishing
+ * it first. `cancelAndHoldAtTime` is the right call and does exactly this;
+ * browsers that lack it (older Firefox) fall back to pinning the last value we
+ * know about, which is correct at the ends of a glide and close enough in the
+ * middle.
+ */
+export function anchorAutomation(param: AudioParam, when: number): void {
+  const holdable = param as AudioParam & { cancelAndHoldAtTime?: (time: number) => void };
+  if (typeof holdable.cancelAndHoldAtTime === 'function') holdable.cancelAndHoldAtTime(when);
+  else param.setValueAtTime(param.value, when);
+}
 
 /** A sounding thing that can be cut short. */
 export interface Voice {
@@ -86,12 +101,16 @@ function mulberry32(seed: number): () => number {
 /**
  * One period of a polynomial counter as +/-1 samples, one sample per bit. The
  * buffer is clocked by playbackRate so a single buffer serves every pitch.
- * POKEY's counters are 4-bit (period 15) and 17-bit (period 131071); the tap
+ * POKEY's counters are 4-bit (period 15), 5-bit (31) and 17-bit (131071); the tap
  * positions come from the POKEY datasheet, since the reference does not list
- * them.
+ * them. All three are maximal-length with these taps.
  */
-function fillPolyBuffer(data: Float32Array, bits: 4 | 17): void {
-  const tap = bits === 4 ? 3 : 12;
+const POLY_TAPS: Record<PolyBits, number> = { 4: 3, 5: 3, 17: 12 };
+
+type PolyBits = 4 | 5 | 17;
+
+function fillPolyBuffer(data: Float32Array, bits: PolyBits): void {
+  const tap = POLY_TAPS[bits];
   let register = (1 << bits) - 1;
   for (let i = 0; i < data.length; i += 1) {
     const bit = register & 1;
@@ -114,6 +133,9 @@ function stopSources(sources: readonly AudioScheduledSourceNode[], when: number)
 export function createSynth(ctx: AudioContext, out: AudioNode): Synth {
   const polyBuffers = new Map<string, AudioBuffer>();
   let white: AudioBuffer | null = null;
+  // Deterministic, so a recording of the game sounds the same every run, but
+  // varied enough that repeated bursts do not replay identical noise.
+  const nextRandom = mulberry32(0x62de);
 
   function whiteNoiseBuffer(): AudioBuffer {
     if (!white) {
@@ -128,7 +150,7 @@ export function createSynth(ctx: AudioContext, out: AudioNode): Synth {
   function polyBuffer(kind: Exclude<PokeyDistortion, 'tone'>): AudioBuffer {
     const cached = polyBuffers.get(kind);
     if (cached) return cached;
-    const bits = kind === 'poly4' ? 4 : 17;
+    const bits: PolyBits = kind === 'poly4' ? 4 : kind === 'poly5' ? 5 : 17;
     const buffer = ctx.createBuffer(1, (1 << bits) - 1, ctx.sampleRate);
     fillPolyBuffer(buffer.getChannelData(0), bits);
     polyBuffers.set(kind, buffer);
@@ -168,21 +190,24 @@ export function createSynth(ctx: AudioContext, out: AudioNode): Synth {
     gainNode.connect(out);
 
     let source: AudioScheduledSourceNode;
-    let setFrequency: (hz: number, time: number) => void;
+    let setAudf: (audf: number, time: number) => void;
     if (distortion === 'tone') {
-      // A POKEY "pure tone" is a square wave.
+      // A POKEY "pure tone" is a square wave at the divider's halved output.
       const osc = ctx.createOscillator();
       osc.type = 'square';
-      setFrequency = (hz, time) => osc.frequency.setValueAtTime(hz, time);
+      setAudf = (audf, time) => osc.frequency.setValueAtTime(pokeyFrequency(audf, clock), time);
       source = osc;
     } else {
       const bufferSource = ctx.createBufferSource();
       bufferSource.buffer = polyBuffer(distortion);
       bufferSource.loop = true;
-      // The polynomial counter is clocked at the channel frequency, and the
-      // buffer holds one bit per sample.
-      setFrequency = (hz, time) =>
-        bufferSource.playbackRate.setValueAtTime(hz / ctx.sampleRate, time);
+      // The polynomial counter is latched by the divider itself, not by the
+      // halved square-wave output, and the buffer holds one bit per sample.
+      setAudf = (audf, time) =>
+        bufferSource.playbackRate.setValueAtTime(
+          pokeyDividerClock(audf, clock) / ctx.sampleRate,
+          time,
+        );
       source = bufferSource;
     }
     source.connect(gainNode);
@@ -191,8 +216,7 @@ export function createSynth(ctx: AudioContext, out: AudioNode): Synth {
     const audcSteps = expandPokeyStream(audc);
     for (let pass = 0; pass < repeat; pass += 1) {
       const offset = at + pass * period;
-      for (const step of audfSteps)
-        setFrequency(pokeyFrequency(step.value, clock), offset + step.time);
+      for (const step of audfSteps) setAudf(step.value, offset + step.time);
       for (const step of audcSteps) {
         gainNode.gain.setValueAtTime(
           volumeToGain(audcVolume(step.value)) * level,
@@ -213,6 +237,9 @@ export function createSynth(ctx: AudioContext, out: AudioNode): Synth {
 
     const source = noiseSource();
     const gainNode = ctx.createGain();
+    // Start somewhere else in the shared buffer each time, so two shots in a row
+    // are not the same waveform.
+    const bufferOffset = nextRandom() * (source.buffer?.duration ?? 0);
     gainNode.gain.setValueAtTime(SILENCE, at);
     gainNode.gain.linearRampToValueAtTime(level, at + attack);
     gainNode.gain.exponentialRampToValueAtTime(SILENCE, endTime);
@@ -231,7 +258,7 @@ export function createSynth(ctx: AudioContext, out: AudioNode): Synth {
     }
     gainNode.connect(out);
 
-    source.start(at);
+    source.start(at, bufferOffset);
     source.stop(endTime);
     return voice([source], endTime);
   }

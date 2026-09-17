@@ -6,9 +6,9 @@
  * $ab and fades by 1 for 9 steps, then holds $a2 twice.
  *
  * The reference does not record the AUDC chunk durations. The AUDF stream runs
- * 120 ticks and the AUDC stream has 11 steps, so roughly 11 ticks per step lines
- * the two up; we use 11 for the nine fading steps and 10 for the two tail steps,
- * which fits the whole 0.48 s sweep.
+ * 120 ticks across 11 AUDC steps, so we hold ten of them for 11 ticks and the
+ * last for 10, which comes to exactly 120 ticks (0.48 s) and keeps the two
+ * streams in step.
  */
 
 import type { PokeyChunk } from '../pokey';
@@ -29,7 +29,8 @@ const AUDF: PokeyChunk[] = [
 
 const AUDC: PokeyChunk[] = [
   { value: 0xab, duration: 11, increment: -1, repetitions: 9 },
-  { value: 0xa2, duration: 10, increment: 0, repetitions: 2 },
+  { value: 0xa2, duration: 11, increment: 0, repetitions: 1 },
+  { value: 0xa2, duration: 10, increment: 0, repetitions: 1 },
 ];
 
 export function playCollisionWarble(synth: Synth, at: number): Voice {

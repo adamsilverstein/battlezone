@@ -10,7 +10,7 @@
  * tread grind.
  */
 
-import type { Synth, Voice } from '../synth';
+import { anchorAutomation, type Synth, type Voice } from '../synth';
 
 const IDLE_HZ = 38;
 const REV_HZ = 62;
@@ -27,6 +27,11 @@ export const ENGINE_RAMP_SECONDS = 0.32;
 export interface EngineVoice extends Voice {
   /** Rev up while the treads are engaged, down when both sticks are centred. */
   setRev(revvedUp: boolean, at: number): void;
+}
+
+function glide(param: AudioParam, target: number, from: number, to: number): void {
+  anchorAutomation(param, from);
+  param.linearRampToValueAtTime(target, to);
 }
 
 export function startEngine(synth: Synth, at: number): EngineVoice {
@@ -60,10 +65,12 @@ export function startEngine(synth: Synth, at: number): EngineVoice {
       revvedUp = next;
       const end = when + ENGINE_RAMP_SECONDS;
       const base = next ? REV_HZ : IDLE_HZ;
-      low.frequency.linearRampToValueAtTime(base, end);
-      high.frequency.linearRampToValueAtTime(base * DETUNE, end);
-      tone.frequency.linearRampToValueAtTime(next ? REV_CUTOFF_HZ : IDLE_CUTOFF_HZ, end);
-      output.gain.linearRampToValueAtTime(next ? REV_LEVEL : IDLE_LEVEL, end);
+      // Anchor first: letting go of the sticks part-way through a rev-up has to
+      // turn around from where the glide had got to, not carry on to the target.
+      glide(low.frequency, base, when, end);
+      glide(high.frequency, base * DETUNE, when, end);
+      glide(tone.frequency, next ? REV_CUTOFF_HZ : IDLE_CUTOFF_HZ, when, end);
+      glide(output.gain, next ? REV_LEVEL : IDLE_LEVEL, when, end);
     },
   };
 }

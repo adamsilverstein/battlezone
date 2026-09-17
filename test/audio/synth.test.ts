@@ -8,7 +8,13 @@ import {
   asAudioContext,
 } from './fakeAudioContext';
 import { createSynth } from '../../src/audio/synth';
-import { NMI_HZ, hold, pokeyFrequency, volumeToGain } from '../../src/audio/pokey';
+import {
+  NMI_HZ,
+  hold,
+  pokeyDividerClock,
+  pokeyFrequency,
+  volumeToGain,
+} from '../../src/audio/pokey';
 
 function setup(): { fake: FakeAudioContext; out: FakeGainNode } {
   const fake = new FakeAudioContext();
@@ -82,8 +88,10 @@ describe('pokeyVoice', () => {
     if (!(source instanceof FakeAudioBufferSourceNode)) throw new Error('no buffer source');
     expect(source.loop).toBe(true);
     expect(source.buffer?.length).toBe(15);
-    // The poly counter is clocked at the channel frequency.
-    expect(source.playbackRate.scheduledValues()).toEqual([pokeyFrequency(0x10) / fake.sampleRate]);
+    // The poly counter is latched at the divider clock, twice the tone frequency.
+    expect(source.playbackRate.scheduledValues()).toEqual([
+      pokeyDividerClock(0x10) / fake.sampleRate,
+    ]);
   });
 
   it('repeats the whole stream for looped effects', () => {
@@ -167,6 +175,30 @@ describe('noiseVoice', () => {
     expect(voice.endTime).toBeCloseTo(2.5, 9);
   });
 
+  it('starts each burst at a different offset into the shared noise buffer', () => {
+    const { fake, out } = setup();
+    const synth = createSynth(asAudioContext(fake), out as unknown as AudioNode);
+
+    synth.noiseVoice({ at: 0, duration: 0.1, level: 0.5 });
+    synth.noiseVoice({ at: 0, duration: 0.1, level: 0.5 });
+
+    const [first, second] = fake.nodesOfKind('bufferSource');
+    if (
+      !(first instanceof FakeAudioBufferSourceNode) ||
+      !(second instanceof FakeAudioBufferSourceNode)
+    ) {
+      throw new Error('expected two noise sources');
+    }
+    // Same buffer, different starting point, so repeated shots do not sound
+    // identical.
+    expect(first.buffer).toBe(second.buffer);
+    expect(first.startOffset).not.toBe(second.startOffset);
+    for (const source of [first, second]) {
+      expect(source.startOffset as number).toBeGreaterThanOrEqual(0);
+      expect(source.startOffset as number).toBeLessThan(source.buffer?.duration as number);
+    }
+  });
+
   it('works without a filter', () => {
     const { fake, out } = setup();
     const synth = createSynth(asAudioContext(fake), out as unknown as AudioNode);
@@ -188,6 +220,7 @@ describe('buffers', () => {
     expect(synth.whiteNoiseBuffer()).toBe(synth.whiteNoiseBuffer());
     expect(synth.polyBuffer('poly4')).toBe(synth.polyBuffer('poly4'));
     expect(synth.polyBuffer('poly4')).not.toBe(synth.polyBuffer('poly17'));
+    expect(synth.polyBuffer('poly5')).not.toBe(synth.polyBuffer('poly4'));
   });
 
   it('fills poly buffers with one polynomial-counter period of bits', () => {
@@ -196,6 +229,7 @@ describe('buffers', () => {
 
     const poly4 = synth.polyBuffer('poly4');
     expect(poly4.length).toBe(15);
+    expect(synth.polyBuffer('poly5').length).toBe(31);
     expect(synth.polyBuffer('poly17').length).toBe(131071);
 
     const data = poly4.getChannelData(0);

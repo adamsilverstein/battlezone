@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import { MUTE_RAMP_SECONDS } from '../../src/audio/audioSystem';
 import {
   PLAYING,
   SILENT,
   buzzGain,
   gains,
   oscillators,
+  sirenGain,
   unlocked,
   type Harness,
 } from './audioSystemHarness';
@@ -96,13 +98,46 @@ describe('continuous sounds', () => {
     // Ramming a block takes channel 1, so the siren drops out and comes back.
     fake.advance(1);
     audio.handle({ type: 'motionBlocked' });
-    const suppressions = gains(fake)
-      .flatMap((gain) => gain.gain.changes)
-      .filter((change) => change.time === 1 && change.value === 0);
+    const suppressions = sirenGain(fake).gain.changes.filter((change) => {
+      return change.method === 'setValueAtTime' && change.time === 1 && change.value === 0;
+    });
     expect(suppressions).toHaveLength(1);
 
     audio.update(PLAYING);
     expect(hover.every((osc) => osc.stopTime !== null)).toBe(true);
+  });
+
+  it('keeps the siren down for the longest overlapping channel-1 sound', async () => {
+    const { fake, audio } = await unlocked();
+    audio.update({ ...PLAYING, saucerActive: true });
+    const siren = sirenGain(fake);
+    const level = siren.gain.value;
+
+    // A short warble, then a long saucer-hit chirp over the top of it: the siren
+    // must come back after the chirp, not part-way through it.
+    audio.handle({ type: 'motionBlocked' });
+    const warbleEnd = 120 / 250;
+    fake.advance(0.1);
+    audio.handle({ type: 'enemyDestroyed', kind: 'saucer', points: 5000 });
+    const chirpEnd = 0.1 + (24 * 21) / 250;
+
+    const restores = siren.gain.schedule().filter((change) => change.value === level);
+    expect(restores).toHaveLength(1);
+    expect(restores[0]?.time).toBeCloseTo(chirpEnd, 9);
+    expect(chirpEnd).toBeGreaterThan(warbleEnd);
+  });
+
+  it('starts the siren already down when channel 1 is busy', async () => {
+    const { fake, audio } = await unlocked();
+    audio.handle({ type: 'motionBlocked' });
+
+    fake.advance(0.1);
+    audio.update({ ...PLAYING, saucerActive: true });
+
+    const scheduled = sirenGain(fake).gain.schedule();
+    expect(scheduled[0]).toEqual({ method: 'setValueAtTime', value: 0, time: 0.1 });
+    // Channel 1 is booked through the warble and the merp queued behind it.
+    expect(scheduled[1]?.time).toBeCloseTo((120 + 32) / 250, 9);
   });
 });
 
@@ -115,8 +150,14 @@ describe('muting', () => {
     fake.advance(1);
     audio.setMuted(true);
     const master = gains(fake)[0];
+    // A short ramp rather than an instant flip, so the mute itself cannot click.
+    expect(master?.gain.changes.at(-1)).toEqual({
+      method: 'linearRampToValueAtTime',
+      value: 0,
+      time: 1 + MUTE_RAMP_SECONDS,
+    });
     expect(master?.gain.value).toBe(0);
-    expect(fake.activeSources(1)).toHaveLength(0);
+    expect(fake.activeSources(1 + MUTE_RAMP_SECONDS)).toHaveLength(0);
 
     // Muted means silent, whatever happens in the game.
     const before = fake.nodes.length;

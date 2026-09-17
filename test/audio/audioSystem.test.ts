@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { FakeAudioContext } from './fakeAudioContext';
+import type { FakeAudioContext, FakeScheduledSource } from './fakeAudioContext';
 import { createAudioSystem } from '../../src/audio/audioSystem';
 import { LOUD_EXPLOSION_SECONDS, SOFT_EXPLOSION_SECONDS } from '../../src/audio/sounds/explosion';
 import {
@@ -118,6 +118,38 @@ describe('one-shot events', () => {
 
     const beeps = gains(fake).flatMap((gain) => gain.gain.scheduledValues().filter((v) => v > 0));
     expect(beeps).toHaveLength(4);
+  });
+
+  it('keeps the merp on channel 1 with its warble', async () => {
+    const { fake, audio } = await unlocked();
+    audio.handle({ type: 'motionBlocked' });
+
+    const merp = fake.nodesOfKind('bufferSource')[0];
+    const merpEnd = merp?.kind === 'bufferSource' ? (merp as FakeScheduledSource).stopTime : null;
+    expect(merpEnd).not.toBeNull();
+
+    // Channel 2 traffic must not touch it.
+    fake.advance(0.1);
+    audio.handle({ type: 'radarPing' });
+    audio.handle({ type: 'extraLife' });
+    expect((merp as FakeScheduledSource).stopTime).toBe(merpEnd);
+
+    // Channel 1 traffic does, because that is where it lives.
+    fake.advance(0.1);
+    audio.handle({ type: 'enemyDestroyed', kind: 'saucer', points: 5000 });
+    expect((merp as FakeScheduledSource).stopTime).toBe(0.2);
+  });
+
+  it('booms once the fanfare finishes, as the original does at 100K', async () => {
+    const { fake, audio } = await unlocked();
+    audio.handle({ type: 'fanfare' });
+
+    const fanfareEnd = (13 * 48) / 250;
+    const boom = fake
+      .sources()
+      .find((source) => source.kind === 'bufferSource' && source.startTime === fanfareEnd);
+    expect(boom).toBeDefined();
+    expect((boom?.stopTime as number) - fanfareEnd).toBeCloseTo(LOUD_EXPLOSION_SECONDS, 9);
   });
 
   it('warbles then merps when the tank is blocked, without machine-gunning', async () => {

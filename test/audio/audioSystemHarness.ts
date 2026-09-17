@@ -9,6 +9,7 @@ import {
 } from './fakeAudioContext';
 import { createAudioSystem, type AudioSystem } from '../../src/audio/audioSystem';
 import type { AudioSnapshot } from '../../src/game/types';
+import { pokeyFrequency } from '../../src/audio/pokey';
 
 export const SILENT: AudioSnapshot = {
   engineRunning: false,
@@ -60,6 +61,17 @@ export function sourceDurations(fake: FakeAudioContext): number[] {
     .sources()
     .filter((source) => source.startTime !== null && source.stopTime !== null)
     .map((source) => (source.stopTime as number) - (source.startTime as number));
+}
+
+/** The saucer siren's output gain, found through its square carrier. */
+export function sirenGain(fake: FakeAudioContext): FakeGainNode {
+  const centre = (pokeyFrequency(0x40) + pokeyFrequency(0x20)) / 2;
+  const carrier = fake.nodes.find((node): node is FakeOscillatorNode => {
+    return node instanceof FakeOscillatorNode && Math.abs(node.frequency.value - centre) < 1;
+  });
+  const output = carrier?.outputs[0];
+  if (!(output instanceof FakeGainNode)) throw new Error('no siren output gain');
+  return output;
 }
 
 /** The missile buzz pair runs through its own 900 Hz lowpass into its gain. */

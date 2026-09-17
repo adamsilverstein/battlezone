@@ -174,9 +174,19 @@ describe('saucer hover', () => {
 
     voice.suppress(4, 4.5);
     expect(output?.gain.changes).toEqual([
+      // Anything the previous suppression scheduled from here on is dropped.
+      { method: 'cancelScheduledValues', value: volumeToGain(1), time: 4 },
       { method: 'setValueAtTime', value: 0, time: 4 },
       { method: 'setValueAtTime', value: volumeToGain(1), time: 4.5 },
     ]);
+
+    // A shorter sound over the top must not bring the siren back early.
+    voice.suppress(4.2, 4.3);
+    expect(output?.gain.changes.at(-1)).toEqual({
+      method: 'setValueAtTime',
+      value: volumeToGain(1),
+      time: 4.5,
+    });
 
     voice.stop(9);
     expect(carrier.stopTime).toBe(9);
@@ -225,17 +235,46 @@ describe('engine', () => {
     const idle = oscs[0]?.frequency.value as number;
 
     voice.setRev(true, 1);
-    const ramp = oscs[0]?.frequency.changes[0];
+    const [anchor, ramp] = oscs[0]?.frequency.changes ?? [];
+    expect(anchor?.method).toBe('cancelAndHoldAtTime');
+    expect(anchor?.time).toBe(1);
     expect(ramp?.method).toBe('linearRampToValueAtTime');
     expect(ramp?.value).toBeGreaterThan(idle);
     expect(ramp?.time).toBeCloseTo(1 + ENGINE_RAMP_SECONDS, 9);
 
     // Already revved: no further scheduling.
     voice.setRev(true, 2);
-    expect(oscs[0]?.frequency.changes).toHaveLength(1);
+    expect(oscs[0]?.frequency.changes).toHaveLength(2);
 
     voice.setRev(false, 3);
-    expect(oscs[0]?.frequency.changes[1]?.value).toBeCloseTo(idle, 6);
+    expect(oscs[0]?.frequency.changes[3]?.value).toBeCloseTo(idle, 6);
+  });
+
+  it('anchors every glide so an interrupted rev turns around where it is', () => {
+    const { fake, synth } = setup();
+    const voice = startEngine(synth, 0);
+
+    // Release the sticks a fifth of the way into the rev-up.
+    voice.setRev(true, 0);
+    voice.setRev(false, ENGINE_RAMP_SECONDS / 5);
+
+    const automated = [
+      ...oscillators(fake).map((osc) => osc.frequency),
+      ...fake.nodes
+        .filter((node): node is FakeBiquadFilterNode => node instanceof FakeBiquadFilterNode)
+        .map((filter) => filter.frequency),
+    ];
+    expect(automated.length).toBeGreaterThan(0);
+    for (const param of automated) {
+      const methods = param.methods();
+      expect(methods).toHaveLength(4);
+      // Every ramp is preceded by an anchor, so the second ramp starts from the
+      // value the first had reached instead of continuing to the rev target.
+      expect(methods[0]).toBe('cancelAndHoldAtTime');
+      expect(methods[1]).toBe('linearRampToValueAtTime');
+      expect(methods[2]).toBe('cancelAndHoldAtTime');
+      expect(methods[3]).toBe('linearRampToValueAtTime');
+    }
   });
 
   it('stops every source', () => {

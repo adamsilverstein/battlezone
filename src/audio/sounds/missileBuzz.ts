@@ -14,8 +14,24 @@ import type { Synth, Voice } from '../synth';
 
 const AUDF3 = 0xff;
 const AUDF4 = 0xfe;
+
+/** Missiles spawn at the far distance ($5fff), which is where the buzz starts. */
+export const FAR_SPAWN_DISTANCE = 0x5fff;
 /** The original rewrites the volume once per game frame (64 ms). */
 const LEVEL_RAMP_SECONDS = 0.064;
+
+/**
+ * AUDC3/AUDC4 come from the missile's distance high byte: shifted right 3, masked
+ * to 0-15 and inverted, so nearer is louder, and silent once bit 7 of the high
+ * byte is set, meaning too far to hear. At the far spawn distance that lands on
+ * volume 4; at zero distance, 15. A null distance means no missile: silence.
+ */
+export function buzzVolume(distance: number | null): number {
+  if (distance === null) return 0;
+  const high = Math.floor(Math.max(0, distance) / 256);
+  if ((high & 0x80) !== 0) return 0;
+  return 15 - ((high >> 3) & 0x0f);
+}
 
 export interface MissileBuzzVoice extends Voice {
   /** POKEY volume 0-15, as written to AUDC3/AUDC4; 0 is silence. */

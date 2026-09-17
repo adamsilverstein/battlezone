@@ -25,7 +25,10 @@ const CYCLE_SECONDS = (32 * 4) / 250;
 
 /** The saucer siren is lowest priority on channel 1, so it can be silenced. */
 export interface SaucerHoverVoice extends Voice {
-  /** Mutes the siren for the span another channel-1 effect occupies. */
+  /**
+   * Mutes the siren for the span another channel-1 effect occupies. Overlapping
+   * calls keep the siren down until the last of them ends.
+   */
   suppress(from: number, until: number): void;
 }
 
@@ -44,14 +47,21 @@ export function startSaucerHover(synth: Synth, at: number): SaucerHoverVoice {
   lfo.start(at);
 
   const voice = synth.voice([carrier, lfo], Infinity);
+  let suppressedUntil = 0;
+
   return {
     get endTime() {
       return voice.endTime;
     },
     stop: (when?: number) => voice.stop(when),
     suppress(from: number, until: number) {
+      // Track the latest end across overlapping channel-1 sounds, and drop the
+      // restore the previous one had scheduled, or a short effect starting over a
+      // long one would bring the siren back mid-effect.
+      suppressedUntil = Math.max(suppressedUntil, until);
+      output.gain.cancelScheduledValues(from);
       output.gain.setValueAtTime(0, from);
-      output.gain.setValueAtTime(level, until);
+      output.gain.setValueAtTime(level, suppressedUntil);
     },
   };
 }
