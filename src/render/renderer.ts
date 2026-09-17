@@ -2,6 +2,16 @@
  * Composes a frame for a `GameState`: the backdrop, the battlefield, the HUD and,
  * while the player is dead, the shattered windshield over the lot.
  *
+ * WHICH DISPLAY THE PHASE ASKS FOR
+ * --------------------------------
+ * `MAIN` "branch[es] away to the high score or attract display if either is
+ * active" before it draws anything of the 3D view, so the high score table and the
+ * initials editor replace the frame rather than sitting over it; everything else is
+ * the battlefield with something drawn on top of it - the flying logo on the title,
+ * `GAME OVER` at the end of a game, the crack while the player is dead.  The
+ * copyright line and `PRESS START` go on whenever a game is not being played
+ * (docs/reference/original-game.md sections 4 and 6).
+ *
  * Interpolation lives here and nowhere else.  The simulation runs at 15.625 Hz
  * and stores no render state, so the renderer keeps its own snapshot of the
  * previous two ticks and blends them by `alpha`, the fraction of the pending tick
@@ -17,7 +27,7 @@
  * an entity is new, since there is nothing truthful to blend from.
  */
 
-import { CRACK_GROUPS, EYE_HEIGHT_UNITS } from '../data/constants';
+import { CRACK_GROUPS, DEFAULT_OPTIONS, EYE_HEIGHT_UNITS } from '../data/constants';
 import type { Debris, Enemy, GameState, Shell, World } from '../game/types';
 import { clamp, lerp, wrapAngle } from '../engine/math';
 import type { Camera } from './camera';
@@ -25,6 +35,14 @@ import { drawCrack } from './crack';
 import { drawHud } from './hud';
 import { drawWorldObjects } from './objects';
 import { drawHorizon } from './scene';
+import {
+  drawCopyright,
+  drawGameOver,
+  drawHighScoreTable,
+  drawInitialsEntry,
+  drawPressStart,
+  drawTitle,
+} from './screens';
 import type { VectorDisplay } from './vectorDisplay';
 
 /** Where something was at the end of a tick: ground position, height and yaw. */
@@ -146,19 +164,50 @@ export function createRenderer(d: VectorDisplay): {
         }),
       };
 
+      // The table is not guaranteed to be sorted, so take the best of it, and of
+      // the score in hand once the player has passed it.
+      const highScore = Math.max(...state.highScores.map((entry) => entry.score), world.score);
+      // A game is being played from the start button until the last crack fades,
+      // which is when the copyright line and PRESS START stay off.
+      const inPlay = state.phase === 'playing' || state.phase === 'playerDead';
+
       d.beginFrame();
-      drawHorizon(d, cam, tick);
-      drawWorldObjects(d, cam, view);
-      drawHud(d, view, {
-        // The ROM draws no gunsight behind the attract logo; everything else
-        // keeps it (BZONE.MAC.txt:961-965).
-        showReticle: state.phase !== 'attractTitle',
-        blinkTick: tick,
-        // The table is not guaranteed to be sorted, so take the best of it, and
-        // of the score in hand once the player has passed it.
-        highScore: Math.max(...state.highScores.map((entry) => entry.score), world.score),
-      });
-      if (state.phase === 'playerDead') drawCrack(d, crackProgress(state.phaseTicks));
+
+      if (state.phase === 'attractHighScores') {
+        drawHighScoreTable(d, state.highScores, {
+          bonusThreshold: DEFAULT_OPTIONS.bonusThreshold,
+        });
+      } else if (state.phase === 'highScoreEntry' && state.entry) {
+        drawInitialsEntry(d, state.entry);
+        drawHud(d, view, {
+          showReticle: false,
+          showRadar: false,
+          blinkTick: tick,
+          highScore,
+        });
+      } else {
+        drawHorizon(d, cam, tick);
+        drawWorldObjects(d, cam, view);
+        drawHud(d, view, {
+          // The ROM draws no gunsight behind the attract logo; everything else
+          // keeps it (BZONE.MAC.txt:961-965).
+          showReticle: state.phase !== 'attractTitle',
+          blinkTick: tick,
+          highScore,
+        });
+        if (state.phase === 'attractTitle') drawTitle(d, state.phaseTicks);
+        if (state.phase === 'gameOver') drawGameOver(d, state.message);
+        if (state.phase === 'playerDead') drawCrack(d, crackProgress(state.phaseTicks));
+      }
+
+      // Drawn on every display but a game in progress: the copyright line the ROM
+      // emits whenever it is not playing, and the invitation to play.  The phase
+      // counter drives the flash because the world stands still on some of them.
+      if (!inPlay) {
+        drawCopyright(d);
+        drawPressStart(d, state.phaseTicks);
+      }
+
       d.endFrame();
     },
   };

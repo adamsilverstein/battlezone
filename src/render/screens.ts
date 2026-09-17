@@ -226,9 +226,12 @@ export function drawPressStart(d: VectorDisplay, blinkTick: number): void {
   drawMessage(d, PRESS_START);
 }
 
-/** `GAME OVER`, which the ROM draws steadily over whatever is behind it. */
-export function drawGameOver(d: VectorDisplay): void {
-  drawMessage(d, GAME_OVER);
+/**
+ * `GAME OVER`, which the ROM draws steadily over whatever is behind it.  The text
+ * is a parameter because the state machine publishes it as `GameState.message`.
+ */
+export function drawGameOver(d: VectorDisplay, text: string = GAME_OVER.text): void {
+  drawMessage(d, GAME_OVER, text);
 }
 
 // --------------------------------------------------------------------------- //

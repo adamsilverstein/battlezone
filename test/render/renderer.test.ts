@@ -1,13 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { CRACK_GROUPS, EYE_HEIGHT_UNITS } from '../../src/data/constants';
+import { CRACK_GROUPS, DEFAULT_OPTIONS, EYE_HEIGHT_UNITS } from '../../src/data/constants';
 import { createAttractWorld } from '../../src/game/world';
 import type { Enemy, GameState, Shell, World } from '../../src/game/types';
 import type { Camera } from '../../src/render/camera';
 import { drawCrack } from '../../src/render/crack';
-import { drawHud } from '../../src/render/hud';
+import { drawHud, drawReticle } from '../../src/render/hud';
 import { drawWorldObjects } from '../../src/render/objects';
 import { createRenderer } from '../../src/render/renderer';
 import { drawHorizon } from '../../src/render/scene';
+import {
+  drawCopyright,
+  drawGameOver,
+  drawHighScoreTable,
+  drawInitialsEntry,
+  drawPressStart,
+  drawTitle,
+} from '../../src/render/screens';
 import { createRecordingDisplay, type RecordedLine } from '../../src/render/vectorDisplay';
 
 function stateAt(tick: number, x: number, z: number, heading: number): GameState {
@@ -28,16 +36,34 @@ function stateAt(tick: number, x: number, z: number, heading: number): GameState
 function expected(cam: Camera, tick: number, state?: GameState, view?: World): RecordedLine[] {
   const shown = state ?? stateAt(tick, cam.pos.x, cam.pos.z, cam.heading);
   const world = view ?? shown.world;
+  const highScore = Math.max(...shown.highScores.map((e) => e.score), world.score);
+  const inPlay = shown.phase === 'playing' || shown.phase === 'playerDead';
   const d = createRecordingDisplay();
   d.beginFrame();
-  drawHorizon(d, cam, tick);
-  drawWorldObjects(d, cam, world);
-  drawHud(d, world, {
-    showReticle: shown.phase !== 'attractTitle',
-    blinkTick: tick,
-    highScore: Math.max(...shown.highScores.map((e) => e.score), world.score),
-  });
-  if (shown.phase === 'playerDead') drawCrack(d, Math.min(shown.phaseTicks / CRACK_GROUPS, 1));
+
+  if (shown.phase === 'attractHighScores') {
+    drawHighScoreTable(d, shown.highScores, { bonusThreshold: DEFAULT_OPTIONS.bonusThreshold });
+  } else if (shown.phase === 'highScoreEntry' && shown.entry) {
+    drawInitialsEntry(d, shown.entry);
+    drawHud(d, world, { showReticle: false, showRadar: false, blinkTick: tick, highScore });
+  } else {
+    drawHorizon(d, cam, tick);
+    drawWorldObjects(d, cam, world);
+    drawHud(d, world, {
+      showReticle: shown.phase !== 'attractTitle',
+      blinkTick: tick,
+      highScore,
+    });
+    if (shown.phase === 'attractTitle') drawTitle(d, shown.phaseTicks);
+    if (shown.phase === 'gameOver') drawGameOver(d, shown.message);
+    if (shown.phase === 'playerDead') drawCrack(d, Math.min(shown.phaseTicks / CRACK_GROUPS, 1));
+  }
+
+  if (!inPlay) {
+    drawCopyright(d);
+    drawPressStart(d, shown.phaseTicks);
+  }
+
   d.endFrame();
   return d.lines;
 }
@@ -148,7 +174,9 @@ describe('createRenderer', () => {
     createRenderer(d).render(state, 0);
     expect(d.lines).toEqual(expected(CAM_AT_ORIGIN, 4, state));
     // The order matters: the HUD is drawn last so it sits over the view.
-    expect(d.lines.length).toBeGreaterThan(expected(CAM_AT_ORIGIN, 4).length);
+    const bare = stateAt(4, 0, 0, 0);
+    bare.phase = 'playing';
+    expect(d.lines.length).toBeGreaterThan(expected(CAM_AT_ORIGIN, 4, bare).length);
   });
 
   it('shows the better of the score and the high score table', () => {
@@ -174,16 +202,23 @@ describe('createRenderer', () => {
   });
 
   it('hides the reticle behind the attract logo only', () => {
-    const d = createRecordingDisplay();
-    const renderer = createRenderer(d);
-    const title = stateAt(0, 0, 0, 0);
-    title.phase = 'attractTitle';
-    renderer.render(title, 0);
-    const withoutReticle = d.lines.length;
-    const playing = stateAt(0, 0, 0, 0);
-    playing.phase = 'playing';
-    renderer.render(playing, 0);
-    expect(d.lines.length).toBeGreaterThan(withoutReticle);
+    const reticle = createRecordingDisplay();
+    drawReticle(reticle, false);
+    const keys = (lines: readonly RecordedLine[]): string[] =>
+      lines.map((l) => `${l.x0},${l.y0},${l.x1},${l.y1}`);
+    const frame = (phase: GameState['phase']): string[] => {
+      const d = createRecordingDisplay();
+      const state = stateAt(0, 0, 0, 0);
+      state.phase = phase;
+      createRenderer(d).render(state, 0);
+      return keys(d.lines);
+    };
+
+    for (const line of keys(reticle.lines)) {
+      expect(frame('playing')).toContain(line);
+      expect(frame('attractTitle')).not.toContain(line);
+      expect(frame('attractDemo')).toContain(line);
+    }
   });
 
   it('interpolates enemies and shells between ticks by id', () => {
@@ -284,6 +319,66 @@ describe('createRenderer', () => {
     const dead = { ...playing, phase: 'playerDead' as const };
     renderer.render(dead, 0);
     expect(d.lines.length).toBeGreaterThan(alive);
+  });
+
+  it('replaces the whole frame with the high score table', () => {
+    const state = stateAt(3, 0, 0, 0);
+    state.phase = 'attractHighScores';
+    state.highScores = [{ initials: 'ADS', score: 42000 }];
+    const d = createRecordingDisplay();
+    createRenderer(d).render(state, 0);
+
+    expect(d.lines).toEqual(expected(CAM_AT_ORIGIN, 3, state));
+    // No horizon and no radar behind it.
+    const horizon = createRecordingDisplay();
+    drawHorizon(horizon, CAM_AT_ORIGIN, 3);
+    const keys = (lines: readonly RecordedLine[]): string[] =>
+      lines.map((l) => `${l.x0},${l.y0},${l.x1},${l.y1}`);
+    for (const line of keys(horizon.lines)) expect(keys(d.lines)).not.toContain(line);
+  });
+
+  it('draws the initials editor with the score strip but no radar', () => {
+    const state = stateAt(0, 0, 0, 0);
+    state.phase = 'highScoreEntry';
+    state.entry = { initials: 'AD_', cursor: 1, score: 42000 };
+    const d = createRecordingDisplay();
+    createRenderer(d).render(state, 0);
+
+    expect(d.lines).toEqual(expected(CAM_AT_ORIGIN, 0, state));
+    expect(d.lines.length).toBeGreaterThan(0);
+  });
+
+  it('puts GAME OVER over the battlefield the player just left', () => {
+    const state = stateAt(5, 0, 0, 0);
+    state.phase = 'gameOver';
+    state.message = 'GAME OVER';
+    const d = createRecordingDisplay();
+    createRenderer(d).render(state, 0);
+
+    expect(d.lines).toEqual(expected(CAM_AT_ORIGIN, 5, state));
+    const over = createRecordingDisplay();
+    drawGameOver(over, 'GAME OVER');
+    const keys = (lines: readonly RecordedLine[]): string[] =>
+      lines.map((l) => `${l.x0},${l.y0},${l.x1},${l.y1}`);
+    for (const line of keys(over.lines)) expect(keys(d.lines)).toContain(line);
+  });
+
+  it('flies the logo from the phase counter, not the world tick', () => {
+    const early = stateAt(50, 0, 0, 0);
+    early.phase = 'attractTitle';
+    early.phaseTicks = 4;
+    // Both counts are on a lit beat of the PRESS START flash, so only the logo
+    // differs between them.
+    const late = { ...early, phaseTicks: 32 };
+    const d = createRecordingDisplay();
+    const renderer = createRenderer(d);
+
+    renderer.render(early, 0);
+    const first = d.lines.length;
+    renderer.render(late, 0);
+
+    // "ZONE" has joined the group by then, so there is more on screen.
+    expect(d.lines.length).toBeGreaterThan(first);
   });
 
   it('opens and closes the frame exactly once per render', () => {
