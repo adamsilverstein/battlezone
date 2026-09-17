@@ -176,6 +176,28 @@ describe('drawModel', () => {
     expect(gone.lines).toHaveLength(0);
   });
 
+  it('drops an object that has come inside the near plane, whole', () => {
+    // ROTPNT takes the near plane the same way it takes the far one: the object
+    // goes or stays as one. Driving into something makes it vanish rather than
+    // smearing its near edges across the screen, which is the original's own
+    // behaviour.
+    const d = createRecordingDisplay();
+    drawModel(d, cam, pole, { x: 0, y: 0, z: NEAR_CLIP_UNITS - 1 }, { x: 0, y: 0, z: 0 });
+    expect(d.lines).toHaveLength(0);
+
+    const just = createRecordingDisplay();
+    drawModel(just, cam, pole, { x: 0, y: 0, z: NEAR_CLIP_UNITS + 1 }, { x: 0, y: 0, z: 0 });
+    expect(just.lines).toHaveLength(1);
+  });
+
+  it('never lifts an edge above its own intensity, however close it passes', () => {
+    // An accepted object's edges are drawn wherever its vertices fall, eye side
+    // included, and a negative depth used to turn the cue into a bonus. A canvas
+    // silently drops an alpha over 1 and reuses the last one it was given.
+    expect(depthIntensity(1, -5000)).toBeLessThanOrEqual(1);
+    expect(depthIntensity(1, -5000)).toBeCloseTo(1, 9);
+  });
+
   it('draws what is in front of it across the seam of the torus', () => {
     // The world wraps at WORLD_SIZE and every position is stored wrapped, so a
     // player near the seam has the ground in front of them stored at the other

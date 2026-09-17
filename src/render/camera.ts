@@ -78,9 +78,15 @@ function projectView(v: Vec3): { x: number; y: number } {
  * Depth cueing: `DQUE`, the high nibble of the view depth, is subtracted from the
  * object's intensity and clamped to a floor of 0x30
  * (BZONE.MAC.txt:3761-3775, 3989-3991).
+ *
+ * A depth behind the eye has no cue to give - and it can reach here, since an
+ * edge of an accepted object is drawn wherever its own vertices fall. Left
+ * unclamped it lifts the intensity above `base`, and an alpha over 1 is not an
+ * error a canvas reports: the setter drops it and the line is stroked with
+ * whatever the line before it left behind.
  */
 export function depthIntensity(base: number, depth: number): number {
-  const cue = Math.floor(depth / 2 ** DEPTH_CUE_SHIFT) / INTENSITY_MAX;
+  const cue = Math.floor(Math.max(depth, 0) / 2 ** DEPTH_CUE_SHIFT) / INTENSITY_MAX;
   return Math.max(base - cue, DEPTH_CUE_FLOOR);
 }
 
@@ -102,9 +108,13 @@ function atDepth(from: Vec3, to: Vec3, z: number): Vec3 {
 }
 
 /**
- * Projects a segment, clipping it at the near plane rather than dropping it (the
- * original culled whole objects, which is why long ground edges could pop), then
- * to the 3D view window.  Returns null only when nothing of it is visible.
+ * Projects a free-standing segment - one that is not part of a ROM object, and
+ * so has no object position for ROTPNT to judge - clipping it at the near and
+ * far planes rather than dropping it, then to the 3D view window.  Returns null
+ * only when nothing of it is visible.
+ *
+ * A model's edges do not come through here: `drawModel` puts the object through
+ * ROTPNT's own accept-or-reject, which is what the original did.
  */
 export function projectSegment(
   cam: Camera,
