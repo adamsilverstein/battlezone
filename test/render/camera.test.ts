@@ -7,6 +7,7 @@ import {
   SCREEN_HALF_HEIGHT,
   SCREEN_SCALE,
   VIEW_WINDOW,
+  WORLD_SIZE,
 } from '../../src/data/constants';
 import type { WireModel } from '../../src/data/types';
 import type { Camera } from '../../src/render/camera';
@@ -173,6 +174,22 @@ describe('drawModel', () => {
     const gone = createRecordingDisplay();
     drawModel(gone, cam, box, { x: 0, y: 0, z: FAR_CLIP_UNITS + 1 }, { x: 0, y: 0, z: 0 });
     expect(gone.lines).toHaveLength(0);
+  });
+
+  it('draws what is in front of it across the seam of the torus', () => {
+    // The world wraps at WORLD_SIZE and every position is stored wrapped, so a
+    // player near the seam has the ground in front of them stored at the other
+    // end of the number line. Measured the long way round, that ground is
+    // 63,000 units away and gets culled; measured the way the rest of the game
+    // measures it, it is a few hundred units ahead.
+    const wrap = (v: number): number =>
+      ((((v + WORLD_SIZE / 2) % WORLD_SIZE) + WORLD_SIZE) % WORLD_SIZE) - WORLD_SIZE / 2;
+    for (const raw of [0, 30000, 32000, 32767]) {
+      const seamCam = { ...cam, pos: { x: 0, z: wrap(raw) } };
+      const d = createRecordingDisplay();
+      drawModel(d, seamCam, pole, { x: 0, y: 0, z: wrap(raw + 2000) }, { x: 0, y: 0, z: 0 });
+      expect(d.lines).toHaveLength(1);
+    }
   });
 
   it('draws nothing for a model behind the camera', () => {

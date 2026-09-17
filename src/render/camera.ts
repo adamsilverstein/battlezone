@@ -30,6 +30,7 @@ import {
   SCREEN_SCALE,
 } from '../data/constants';
 import type { WireModel } from '../data/types';
+import { wrapCoordinate } from '../game/collision';
 import type { Vec2, Vec3 } from '../game/types';
 import { rotateY } from '../engine/math';
 import { VIEW_CLIP, clipSegment } from './clip';
@@ -46,9 +47,27 @@ const MODEL_GROUND_LIFT = -GROUND_PLANE_UNITS;
 
 const DEPTH_CUE_FLOOR = DEPTH_CUE_MIN_INTENSITY / 0xff;
 
-/** Takes a world point into view space: relative to the eye, looking down +Z. */
+/**
+ * Takes a world point into view space: relative to the eye, looking down +Z.
+ *
+ * The ground is a torus and every position is stored wrapped onto it, so the
+ * distance to a thing is the short way round - which is how the simulation
+ * measures it everywhere (`octagonalDistance`, `bearingTo`). Subtracting the raw
+ * coordinates instead puts a player at one end of the number line and the ground
+ * in front of them at the other: 63,000 units away rather than 2,000, behind
+ * rather than ahead, and culled. A player crossing the seam - which happens
+ * every twenty seconds or so of driving - watched the battlefield in front of
+ * them disappear.
+ */
 function toView(cam: Camera, p: Vec3): Vec3 {
-  return rotateY({ x: p.x - cam.pos.x, y: p.y - cam.eyeHeight, z: p.z - cam.pos.z }, -cam.heading);
+  return rotateY(
+    {
+      x: wrapCoordinate(p.x - cam.pos.x),
+      y: p.y - cam.eyeHeight,
+      z: wrapCoordinate(p.z - cam.pos.z),
+    },
+    -cam.heading,
+  );
 }
 
 function projectView(v: Vec3): { x: number; y: number } {
