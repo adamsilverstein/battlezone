@@ -18,22 +18,22 @@
  */
 
 import {
-  HEADING_UNITS_PER_TURN,
   OBSTACLES,
   OBSTACLE_TANK_RADIUS,
   SHELL_OBSTACLE_RADIUS_QUARTERS,
   SHELL_OBSTACLE_RADIUS_UNIT,
+  TANGLE_UNIT_RADIANS,
 } from '../data/constants';
-import { TAU, wrapAngle } from '../engine/math';
+import { wrapAngle } from '../engine/math';
 import { wrapCoordinate } from './collision';
 import type { Obstacle, ObstacleKind, Rng } from './types';
 
 /**
- * One `TANGLE` unit in radians.  The ROM's angles count the opposite way round
- * from `Player.heading` - increasing `TANGLE` turns left - so converting flips
- * the sign (see the angle convention in `engine/math.ts`).
+ * Whether a vehicle has run into one of these.  Re-exported so obstacle
+ * collision has one import site; `minRadius` is a floor on the threshold, so
+ * pass 0 to use the obstacle's own `PROXTB` radius.
  */
-const TANGLE_UNIT_RADIANS = TAU / HEADING_UNITS_PER_TURN;
+export { circleHitsObstacle } from './collision';
 
 /**
  * The fixed ROM layout.  ROM y becomes world z, and both coordinates are folded

@@ -87,6 +87,11 @@ export function updatePlayer(world: World, input: InputState): GameEvent[] {
     ? readSticks(input)
     : { turnSteps: 0, moveSteps: 0 };
 
+  // `moving` is the treads translating and `turning` them rotating, kept apart so
+  // the renderer can tell a pivot from a charge.  The engine note does NOT follow
+  // `moving` alone: the ROM sets the "rev up" bit for *any* non-centred stick,
+  // pivot included (BZONE.MAC.txt:5287-5293), so a consumer of
+  // `AudioSnapshot.moving` has to pass `moving || turning`.
   player.turning = turnSteps !== 0;
   player.moving = moveSteps !== 0;
   if (turnSteps !== 0) player.heading = wrapAngle(player.heading + turnSteps * TURN_STEP_RADIANS);

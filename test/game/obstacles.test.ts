@@ -3,12 +3,15 @@ import {
   OBSTACLES,
   OBSTACLE_COUNT,
   OBSTACLE_TANK_RADIUS,
+  PLAYER_OBSTACLE_RADIUS,
   SHELL_OBSTACLE_RADIUS_QUARTERS,
   WORLD_SIZE,
 } from '../../src/data/constants';
 import { MODELS } from '../../src/data/models';
 import { createRng } from '../../src/engine/rng';
-import { placeObstacles, shellHitRadius } from '../../src/game/obstacles';
+import { octagonalDistance } from '../../src/game/collision';
+import { circleHitsObstacle, placeObstacles, shellHitRadius } from '../../src/game/obstacles';
+import { PLAYER_START } from '../../src/game/player';
 
 describe('placeObstacles', () => {
   it('lays out the 21 obstacles of the ROM table', () => {
@@ -58,10 +61,15 @@ describe('placeObstacles', () => {
     expect(placed[2]!.pos).toEqual({ x: 0, z: -0x8000 });
   });
 
-  it('leaves the origin, where the player starts, clear of every obstacle', () => {
-    for (const o of placeObstacles(createRng(0))) {
-      expect(Math.abs(o.pos.x) + Math.abs(o.pos.z)).toBeGreaterThan(o.radius);
+  it('leaves the player start clear, by the metric the game collides with', () => {
+    const placed = placeObstacles(createRng(0));
+    for (const o of placed) {
+      expect(
+        octagonalDistance(PLAYER_START, o.pos),
+        `${o.kind} at ${o.pos.x},${o.pos.z}`,
+      ).toBeGreaterThan(PLAYER_OBSTACLE_RADIUS);
     }
+    expect(circleHitsObstacle(PLAYER_START, PLAYER_OBSTACLE_RADIUS, placed)).toBeNull();
   });
 
   it('turns the ROM orientation byte into a clockwise heading in radians', () => {

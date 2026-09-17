@@ -18,11 +18,11 @@
 import {
   DEFAULT_OPTIONS,
   ENEMY_IN_RANGE_UNITS,
-  HEADING_UNITS_PER_TURN,
   RADAR_SWEEP_PER_TICK,
   RETICLE_LOCK_HEADING,
+  TANGLE_UNIT_RADIANS,
 } from '../data/constants';
-import { TAU, wrapAngle } from '../engine/math';
+import { wrapAngle } from '../engine/math';
 import { createRng } from '../engine/rng';
 import type { InputState } from '../input/types';
 import { bearingTo, octagonalDistance } from './collision';
@@ -30,9 +30,6 @@ import { placeObstacles } from './obstacles';
 import { PLAYER_START, updatePlayer } from './player';
 import { firePlayerShell, updateShells } from './shells';
 import type { Enemy, GameEvent, Rng, World } from './types';
-
-/** One `TANGLE` unit in radians; the ROM counts angles in 256ths of a turn. */
-const TANGLE_UNIT_RADIANS = TAU / HEADING_UNITS_PER_TURN;
 
 /** How far the radar sweep line advances each tick: `$0B` heading units. */
 const RADAR_SWEEP_RADIANS = RADAR_SWEEP_PER_TICK * TANGLE_UNIT_RADIANS;
@@ -73,11 +70,12 @@ export function createWorld(rng: Rng, opts?: { lives?: number }): World {
 }
 
 /**
- * The battlefield with nobody on it, for the boot code and the attract screens.
- * Enemies only ever arrive through `systems`, so this is `createWorld` on a fixed
- * seed - the obstacle layout is a ROM table and does not depend on it anyway.
+ * The battlefield with the obstacles up but nobody on it, for the boot code and
+ * the attract screens.  Enemies only ever arrive through `systems`, so this is
+ * `createWorld` on a fixed seed - the obstacle layout is a ROM table and does not
+ * depend on the seed anyway.
  */
-export function createEmptyWorld(): World {
+export function createAttractWorld(): World {
   return createWorld(createRng(0));
 }
 

@@ -12,7 +12,7 @@ import { TAU, wrapAngle } from '../../src/engine/math';
 import { createRng } from '../../src/engine/rng';
 import { PLAYER_START } from '../../src/game/player';
 import type { Enemy, GameEvent, Rng, World } from '../../src/game/types';
-import { createEmptyWorld, createWorld, systems, updateWorld } from '../../src/game/world';
+import { createAttractWorld, createWorld, systems, updateWorld } from '../../src/game/world';
 import { NEUTRAL_INPUT, type InputState } from '../../src/input/types';
 
 const SWEEP_STEP = (RADAR_SWEEP_PER_TICK / 256) * TAU;
@@ -67,9 +67,9 @@ describe('createWorld', () => {
   });
 });
 
-describe('createEmptyWorld', () => {
+describe('createAttractWorld', () => {
   it('is a world with no enemies, so the boot code keeps working', () => {
-    const world = createEmptyWorld();
+    const world = createAttractWorld();
     expect(world.enemies).toEqual([]);
     expect(world.obstacles).toHaveLength(OBSTACLE_COUNT);
   });

@@ -60,22 +60,26 @@ export function bearingTo(from: Vec2, to: Vec2): number {
 }
 
 /**
- * The first obstacle a body of the given collision radius at `pos` is inside, or
- * null.
+ * The first obstacle a body at `pos` has run into, or null.
  *
- * `OBJOBJ` never sums the two radii: it compares the distance against a single
- * threshold, the obstacle's own `PROXTB` entry for the enemy (pass a radius of 0)
- * and a flat `PLAYER_OBSTACLE_RADIUS` for the player, which is larger than every
- * `PROXTB` entry ("COLLIDE SO WE CAN SEE OBJECT", BZONE.MAC.txt:7159-7169).
- * Taking the larger of the two reproduces both cases.
+ * `OBJOBJ` never sums two radii: it compares the distance against a *single*
+ * threshold, which is the obstacle's own `PROXTB` entry for the enemy and a flat
+ * `PLAYER_OBSTACLE_RADIUS` for the player - larger than every `PROXTB` entry,
+ * "COLLIDE SO WE CAN SEE OBJECT" (BZONE.MAC.txt:7159-7169), so the player is
+ * stopped further out and the obstacle stays in view.
+ *
+ * `minRadius` is therefore a floor on that threshold, not a body radius to be
+ * added to the obstacle's: **pass 0 to collide on the obstacle's own `PROXTB`
+ * radius**, which is what the enemy does, or `PLAYER_OBSTACLE_RADIUS` to get the
+ * player's wider stand-off everywhere.
  */
 export function circleHitsObstacle(
   pos: Vec2,
-  radius: number,
+  minRadius: number,
   obstacles: readonly Obstacle[],
 ): Obstacle | null {
   for (const obstacle of obstacles) {
-    const threshold = Math.max(radius, obstacle.radius);
+    const threshold = Math.max(minRadius, obstacle.radius);
     if (threshold > 0 && octagonalDistance(pos, obstacle.pos) < threshold) return obstacle;
   }
   return null;

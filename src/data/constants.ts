@@ -176,6 +176,14 @@ export const TURN_STEP_DEGREES = 0.703125;
 export const HEADING_UNITS_PER_TURN = 256;
 
 /**
+ * One `TANGLE` unit in radians.  The simulation works in radians, and the ROM's
+ * angles count the opposite way round - increasing `TANGLE` turns left - so
+ * converting a ROM angle also flips the sign (see the angle convention in
+ * `engine/math.ts`).
+ */
+export const TANGLE_UNIT_RADIANS = (Math.PI * 2) / HEADING_UNITS_PER_TURN;
+
+/**
  * Turn steps per tick.  A pivot (one stick forward, one back) turns twice;
  * turning while driving turns once (MTAB dispatch, BZONE.MAC.txt:5217-5247).
  */

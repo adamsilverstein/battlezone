@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { EYE_HEIGHT_UNITS } from '../../src/data/constants';
-import { createEmptyWorld } from '../../src/game/world';
+import { createAttractWorld } from '../../src/game/world';
 import type { GameState } from '../../src/game/types';
 import type { Camera } from '../../src/render/camera';
 import { createRenderer } from '../../src/render/renderer';
@@ -8,7 +8,7 @@ import { drawHorizon } from '../../src/render/scene';
 import { createRecordingDisplay, type RecordedLine } from '../../src/render/vectorDisplay';
 
 function stateAt(tick: number, x: number, z: number, heading: number): GameState {
-  const world = createEmptyWorld();
+  const world = createAttractWorld();
   world.tick = tick;
   world.player.pos = { x, z };
   world.player.heading = heading;

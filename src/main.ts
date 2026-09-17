@@ -12,7 +12,7 @@ import { TICK_HZ } from './data/constants';
 import { createLoop } from './engine/loop';
 import { TAU, wrapAngle } from './engine/math';
 import type { GameState } from './game/types';
-import { createEmptyWorld } from './game/world';
+import { createAttractWorld } from './game/world';
 import { createRenderer } from './render/renderer';
 import { createCanvasDisplay } from './render/vectorDisplay';
 
@@ -25,7 +25,7 @@ if (!(canvas instanceof HTMLCanvasElement)) throw new Error('main: no #screen ca
 const state: GameState = {
   phase: 'attractTitle',
   phaseTicks: 0,
-  world: createEmptyWorld(),
+  world: createAttractWorld(),
   highScores: [],
 };
 
