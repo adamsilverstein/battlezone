@@ -17,14 +17,15 @@ import { CELL_ADVANCE } from '../../src/data/font';
 import { LIVES_TANK, MESSAGES } from '../../src/data/pictures';
 import { defaultHighScores, newInitialsEntry } from '../../src/game/highScores';
 import type { HighScoreEntry } from '../../src/game/types';
+import { MESSAGE_POSITION_SCALE } from '../../src/render/messages';
 import {
-  MESSAGE_POSITION_SCALE,
   drawGameOver,
   drawHighScoreTable,
   drawInitialsEntry,
   drawPressStart,
   drawTitle,
   highScoreRowText,
+  rowOrigin,
 } from '../../src/render/screens';
 import { drawText } from '../../src/render/text';
 import { createRecordingDisplay, type RecordedLine } from '../../src/render/vectorDisplay';
@@ -170,8 +171,16 @@ describe('drawHighScoreTable', () => {
       { initials: 'XYZ', score: 8000 },
     ];
     const lines = record((d) => drawHighScoreTable(d, short));
+    const rowAt = (row: number): RecordedLine[] => {
+      const [x, y] = rowOrigin(row);
+      return textLines(highScoreRowText(short[row]!), x, y, 1);
+    };
 
-    expect(contains(lines, textLines(highScoreRowText(short[2]!), -128, 0, 1))).toBe(false);
+    // The row above the zero is drawn at its own place, the one below it is not -
+    // and the check is against the coordinates the table actually uses, so a row
+    // that moved would fail rather than quietly pass.
+    expect(contains(lines, rowAt(0))).toBe(true);
+    expect(contains(lines, rowAt(2))).toBe(false);
   });
 
   it('adds one tank icon per 100,000 points, up to the cap', () => {

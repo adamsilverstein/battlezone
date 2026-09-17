@@ -1014,6 +1014,14 @@ export const LOGO_TICKS = 192;
 export const LOGO_INTENSITY = 0xf0;
 
 /**
+ * The logo letters are "pre-tilted in the shape data (rotate 76 degrees about X
+ * and the logo faces the viewer squarely)" (docs/reference/original-game.md
+ * section 4).  Undoing that rotation stands the three groups up as one flat sign,
+ * which is what `render/screens.ts` projects.
+ */
+export const LOGO_TILT_DEGREES = 76;
+
+/**
  * "ZONE" is held back until the group has risen past this height, so the words
  * arrive in sequence - the ROM's reason is that the vector generator cannot draw
  * all three groups plus the playfield in one 24 ms refresh while they are large.

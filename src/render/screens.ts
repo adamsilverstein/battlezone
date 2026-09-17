@@ -1,7 +1,8 @@
 /**
  * The full-screen displays that stand in for the battlefield: the attract title
  * with its flying logo, the high score table, the initials entry screen and the
- * GAME OVER line - plus the ROM string table helpers they share with the HUD.
+ * GAME OVER line.  The ROM string table and the two drawing primitives they share
+ * with the HUD live in `render/messages.ts`.
  *
  * `MAIN` "branch[es] away to the high score or attract display if either is
  * active" (docs/reference/atari-source-notes.md, "Frame timing and the main
@@ -18,15 +19,15 @@
  * (the recession) - for `LOGO_TICKS` ticks, with "ZONE" held back until the group
  * has risen past `LOGO_ZONE_HELD_UNTIL` so the words arrive in sequence.
  *
- * DEVIATION: the ROM's letter shapes are pre-tilted about 83 degrees so that its
- * own perspective divide stands them up, and reproducing that needs the exact eye
- * geometry `BATTLE` fed the MathBox, which the surviving source does not pin down
- * (`ROTATE` is handed a group centre, not a camera).  Projecting the shapes as
- * stored puts the letters nearly flat on the ground.  So the tilt is undone here
- * instead: each letter's "forward" coordinate is read as its height and the "up"
- * component dropped, and the group is then projected as a rigid upright sign at
- * the ROM's own depth and height.  The letters keep their proportions, rise, shrink
- * and arrive in sequence, which is what the effect looks like.
+ * The letters are "pre-tilted in the shape data (rotate 76 degrees about X and the
+ * logo faces the viewer squarely)" (docs/reference/original-game.md section 4), so
+ * the shapes as stored lie almost flat.  Undoing that rotation - the only thing
+ * `drawTitle` does that `drawModel` could not, since the MathBox could never pitch
+ * anything and neither can the renderer - stands the three groups up as one sign
+ * about 1900 units tall, BATTLE over ZONE, with a few hundred units of depth left
+ * in it.  From there it is the same `SCREEN_SCALE / depth` divide as the rest of
+ * the game, so the sign keeps its proportions, rises, shrinks and holds a little
+ * real perspective as it goes.
  */
 
 import {
@@ -42,80 +43,31 @@ import {
   LOGO_START_X,
   LOGO_START_Z,
   LOGO_X_PER_TICK,
+  LOGO_TILT_DEGREES,
   LOGO_ZONE_HELD_UNTIL,
   LOGO_Z_PER_TICK,
   PRESS_START_FLASH_TICKS,
-  SCORE_BCD_BYTES,
   SCORE_UNIT,
   SCREEN_SCALE,
   SUPER_BONUS_SCORE,
 } from '../data/constants';
 import { CELL_ADVANCE } from '../data/font';
+import { TAU } from '../engine/math';
 import { MODELS } from '../data/models';
-import { COPYRIGHT, LIVES_TANK, MESSAGES, PHONOGRAM, type MessageEntry } from '../data/pictures';
-import type { Picture2D, WireModel } from '../data/types';
+import { COPYRIGHT, LIVES_TANK, PHONOGRAM } from '../data/pictures';
+import type { WireModel } from '../data/types';
 import type { HighScoreEntry } from '../game/types';
+import {
+  FULL_SIZE_SCALE,
+  MESSAGE_POSITION_SCALE,
+  TEXT_INTENSITY,
+  drawMessage,
+  drawPicture,
+  message,
+  scoreDigits,
+} from './messages';
 import { drawText } from './text';
 import type { VectorDisplay } from './vectorDisplay';
-
-/** Message positions are stored in quarter units (`MessageEntry`). */
-export const MESSAGE_POSITION_SCALE = 4;
-
-/** Text is drawn at intensity 12 (reference section 6). */
-export const TEXT_INTENSITY = 12 / INTENSITY_MAX;
-
-/**
- * Strings up to index `$12` are drawn at the ROM's SCAL 2, half the size of the
- * rest (`DrawStringPtr`, reference section 6).
- */
-const HALF_SIZE_LAST_INDEX = 0x12;
-const FULL_SIZE_SCALE = 1;
-const HALF_SIZE_SCALE = 0.5;
-
-const MESSAGES_BY_LABEL = new Map(MESSAGES.map((m) => [m.label, m]));
-
-/** One entry of the ROM string table, by the label the disassembly gives it. */
-export function message(label: string): MessageEntry {
-  const entry = MESSAGES_BY_LABEL.get(label);
-  if (!entry) throw new Error(`screens: no message labelled ${label}`);
-  return entry;
-}
-
-/** The size the ROM draws a string at: half for the low indices, full for the rest. */
-export function messageScale(entry: MessageEntry): number {
-  return entry.index <= HALF_SIZE_LAST_INDEX ? HALF_SIZE_SCALE : FULL_SIZE_SCALE;
-}
-
-/**
- * Draws one ROM string at its stored position and size, with `text` substituted
- * for the ROM's own where the string carries digits.
- */
-export function drawMessage(d: VectorDisplay, entry: MessageEntry, text = entry.text): void {
-  drawText(
-    d,
-    text,
-    entry.x * MESSAGE_POSITION_SCALE,
-    entry.y * MESSAGE_POSITION_SCALE,
-    messageScale(entry),
-    { intensity: TEXT_INTENSITY },
-  );
-}
-
-/** Draws a 2D picture with its ROM coordinates offset to (dx, dy). */
-export function drawPicture(
-  d: VectorDisplay,
-  picture: Picture2D,
-  dx: number,
-  dy: number,
-  intensity: number,
-): void {
-  for (const stroke of picture.polylines) {
-    d.polyline(
-      stroke.map(([x, y]) => [x + dx, y + dy] as const),
-      intensity,
-    );
-  }
-}
 
 const PRESS_START = message('PRSTRT');
 const GAME_OVER = message('GAMOVR');
@@ -164,21 +116,26 @@ function logoHeight(ticks: number): number {
   return LOGO_START_Z + ticks * LOGO_Z_PER_TICK;
 }
 
+/** The pre-tilt, undone: -76 degrees about X, in the render space's own axes. */
+const LOGO_TILT_RADIANS = (-LOGO_TILT_DEGREES / 360) * TAU;
+const TILT_COS = Math.cos(LOGO_TILT_RADIANS);
+const TILT_SIN = Math.sin(LOGO_TILT_RADIANS);
+
 /**
- * One logo vertex on screen.  ROM vertices are [forward, left, up]; for the logo
- * the forward component is the letter's own height (see the deviation note above),
- * so the sign is drawn upright and projected by the same `SCREEN_SCALE / depth`
- * divide as everything else.
+ * One logo vertex on screen.  ROM vertices are [forward, left, up], which
+ * `render/camera.ts` maps to (-left, up, forward); the tilt is taken out of the
+ * y-z plane from there, and the group's own depth and height carry it out and up.
  */
 function logoPoint(
   vertex: readonly [number, number, number],
   depth: number,
   height: number,
 ): readonly [number, number] {
-  // vertex[0] is the ROM's "forward", read here as the letter's height, and
-  // vertex[2], the remainder of the pre-tilt, is dropped.
-  const [letterY, left] = vertex;
-  return [(SCREEN_SCALE * -left) / depth, (SCREEN_SCALE * (letterY + height)) / depth];
+  const [forward, left, up] = vertex;
+  const x = -left;
+  const y = up * TILT_COS - forward * TILT_SIN;
+  const z = up * TILT_SIN + forward * TILT_COS + depth;
+  return [(SCREEN_SCALE * x) / z, (SCREEN_SCALE * (y + height)) / z];
 }
 
 /** Draws the three letter groups where the flight has taken them. */
@@ -238,18 +195,13 @@ export function drawGameOver(d: VectorDisplay, text: string = GAME_OVER.text): v
 // The high score table
 // --------------------------------------------------------------------------- //
 
-/** Four BCD digits are drawn in front of the literal thousands. */
-const SCORE_DIGITS = SCORE_BCD_BYTES * 2;
-
 /**
  * One row of the table: `SSSS000 III` - four score digits with leading zeros
  * blanked, the literal `000 ` string, then the three initials
  * (BZONE.MAC.txt:54c6-54e8).
  */
 export function highScoreRowText(entry: HighScoreEntry): string {
-  const units = Math.min(Math.floor(entry.score / SCORE_UNIT), 10 ** SCORE_DIGITS - 1);
-  const digits = (units === 0 ? '' : String(units)).padStart(SCORE_DIGITS, ' ');
-  return `${digits}${THOUSANDS.text}${entry.initials}`;
+  return `${scoreDigits(entry.score)}${THOUSANDS.text}${entry.initials}`;
 }
 
 /**
@@ -268,7 +220,7 @@ function tankIcons(score: number): number {
 }
 
 /** Where row `row` starts: each line is staggered four units further left. */
-function rowOrigin(row: number): readonly [number, number] {
+export function rowOrigin(row: number): readonly [number, number] {
   return [
     HIGH_SCORE_LINE_X_QUARTERS * MESSAGE_POSITION_SCALE + row * HIGH_SCORE_LINE_X_SLANT,
     (HIGH_SCORE_FIRST_LINE_Y_QUARTERS - row * HIGH_SCORE_LINE_SPACING_QUARTERS) *
