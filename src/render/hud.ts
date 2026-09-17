@@ -8,9 +8,10 @@
  * window to the whole screen for exactly these elements, which is why the score
  * can sit above the battlefield and the reticle can cross it.
  *
- * Positions come from the ROM string table (`MESSAGES` in `data/pictures.ts`,
- * whose coordinates are quarter units) and from `data/constants.ts`; the shapes
- * are the vector-ROM pictures.  Stroke intensities are the ROM's nibbles read on
+ * Positions come from the ROM string table, which `render/screens.ts` owns along
+ * with the string and picture drawing helpers the two share, and from
+ * `data/constants.ts`; the shapes are the vector-ROM pictures.  Stroke intensities
+ * are the ROM's nibbles read on
  * the vector generator's 0..15 scale, matching how the reference reads them
  * (twice the values noted in the generated picture comments, the same convention
  * `render/scene.ts` uses for the backdrop).
@@ -35,23 +36,12 @@ import {
   SCORE_UNIT,
   TANGLE_UNIT_RADIANS,
 } from '../data/constants';
-import {
-  LIVES_TANK,
-  MESSAGES,
-  RADAR,
-  RETICLE_LOCKED,
-  RETICLE_NORMAL,
-  type MessageEntry,
-} from '../data/pictures';
-import type { Picture2D } from '../data/types';
+import { LIVES_TANK, RADAR, RETICLE_LOCKED, RETICLE_NORMAL } from '../data/pictures';
 import { wrapAngle } from '../engine/math';
 import { bearingTo, octagonalDistance } from '../game/collision';
 import type { Enemy, World } from '../game/types';
-import { drawText } from './text';
+import { drawMessage, drawPicture, message } from './screens';
 import type { VectorDisplay } from './vectorDisplay';
-
-/** Text is drawn at intensity 12 (reference section 6). */
-const TEXT_INTENSITY = 12 / INTENSITY_MAX;
 
 /** The reserve-tank icon is drawn at intensity 12 (reference section 1). */
 const LIVES_INTENSITY = 12 / INTENSITY_MAX;
@@ -73,63 +63,12 @@ const INTENSITY_BYTE_MAX = 0xff;
 const RETICLE_INTENSITY = 6 / INTENSITY_MAX;
 const RETICLE_LOCKED_INTENSITY = 14 / INTENSITY_MAX;
 
-/** Message positions are stored in quarter units (`MessageEntry`). */
-const MESSAGE_POSITION_SCALE = 4;
-
-/**
- * Strings up to index `$12` are drawn at the ROM's SCAL 2, half the size of the
- * rest (`DrawStringPtr`, reference section 6).  One font cell at full size is the
- * 24-unit advance `render/text.ts` draws at scale 1.
- */
-const HALF_SIZE_LAST_INDEX = 0x12;
-const FULL_SIZE_SCALE = 1;
-const HALF_SIZE_SCALE = 0.5;
-
 /** Four BCD digits are drawn into the gap in the score strings. */
 const SCORE_DIGITS = SCORE_BCD_BYTES * 2;
-
-const MESSAGES_BY_LABEL = new Map(MESSAGES.map((m) => [m.label, m]));
-
-function message(label: string): MessageEntry {
-  const entry = MESSAGES_BY_LABEL.get(label);
-  if (!entry) throw new Error(`hud: no message labelled ${label}`);
-  return entry;
-}
 
 const SCORE = message('YSCORE');
 const HIGH_SCORE = message('CHISCR');
 const ENEMY_IN_RANGE = message('ERANGE');
-
-/** Draws a 2D picture with its ROM coordinates offset to (dx, dy). */
-function drawPicture(
-  d: VectorDisplay,
-  picture: Picture2D,
-  dx: number,
-  dy: number,
-  intensity: number,
-): void {
-  for (const stroke of picture.polylines) {
-    d.polyline(
-      stroke.map(([x, y]) => [x + dx, y + dy] as const),
-      intensity,
-    );
-  }
-}
-
-/**
- * Draws one ROM string at its stored position and size, with `text` substituted
- * for the ROM's own (the score strings carry their digits).
- */
-function drawMessage(d: VectorDisplay, entry: MessageEntry, text: string): void {
-  drawText(
-    d,
-    text,
-    entry.x * MESSAGE_POSITION_SCALE,
-    entry.y * MESSAGE_POSITION_SCALE,
-    entry.index <= HALF_SIZE_LAST_INDEX ? HALF_SIZE_SCALE : FULL_SIZE_SCALE,
-    { intensity: TEXT_INTENSITY },
-  );
-}
 
 /**
  * The score strings end in a literal "000" with a four-cell gap in front of it;
@@ -253,13 +192,18 @@ function reticleVisible(world: World, blinkTick: number): boolean {
  * reticle blink are phased from, and `opts.highScore` is the number the HIGH
  * SCORE line shows - the best of the table and the current score, which only the
  * game state knows.
+ *
+ * `opts.showRadar` defaults to true and is false on the high-score entry screen,
+ * which the ROM reaches instead of the frame `DRADAR` is part of, and which the
+ * reference describes as showing the score, high score and lives and nothing else
+ * of the HUD (docs/reference/original-game.md section 4).
  */
 export function drawHud(
   d: VectorDisplay,
   world: World,
-  opts: { showReticle: boolean; blinkTick: number; highScore: number },
+  opts: { showReticle: boolean; blinkTick: number; highScore: number; showRadar?: boolean },
 ): void {
-  drawRadar(d, world);
+  if (opts.showRadar ?? true) drawRadar(d, world);
   drawReserveTanks(d, world.lives);
   drawMessage(d, SCORE, withScore(SCORE.text, world.score));
   drawMessage(d, HIGH_SCORE, withScore(HIGH_SCORE.text, opts.highScore));

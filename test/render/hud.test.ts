@@ -89,7 +89,7 @@ const playerShell: Shell = {
   ticksLeft: 20,
 };
 
-const HUD_OPTS = { showReticle: true, blinkTick: 0, highScore: 0 };
+const HUD_OPTS = { showReticle: true, blinkTick: 0, highScore: 0, showRadar: true };
 
 describe('drawRadar', () => {
   it('draws the ROM tick marks and wedge, and no circle', () => {
@@ -276,6 +276,19 @@ describe('drawHud', () => {
     const world = worldWith({ shells: [{ ...playerShell, owner: 'enemy' }] });
     const drawn = keys(hud(world, { blinkTick: RETICLE_BLINK_TICKS }));
     for (const line of pictureKeys(RETICLE_NORMAL)) expect(drawn).toContain(line);
+  });
+
+  it('leaves the radar out for the screens that have no 3D view behind them', () => {
+    const world = worldWith({ enemies: [tankAt(3000, 3000)] });
+    const withRadar = keys(hud(world));
+    const without = keys(hud(world, { showRadar: false }));
+
+    for (const line of keys(record((d) => drawRadar(d, world)))) {
+      expect(withRadar).toContain(line);
+      expect(without).not.toContain(line);
+    }
+    // The score, high score and reserve tanks stay.
+    expect(without.length).toBeGreaterThan(0);
   });
 
   it('keeps every HUD element on the screen', () => {
