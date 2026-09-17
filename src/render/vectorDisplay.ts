@@ -44,9 +44,17 @@ const MONOCHROME_COLOUR = '#e8ffe8';
 
 /** The glow pass is wide and faint, the bright pass thin and strong. */
 const GLOW_WIDTH = 7;
-const GLOW_ALPHA = 0.16;
+const GLOW_ALPHA = 0.2;
 const BRIGHT_WIDTH = 1.6;
-const BRIGHT_ALPHA = 0.95;
+const BRIGHT_ALPHA = 1;
+
+/**
+ * Phosphor response.  A CRT's brightness against Z-axis drive is nowhere near
+ * linear, and taking the vector generator's intensity straight to alpha leaves
+ * the dimmer half of the scale - the backdrop, distant objects - almost
+ * invisible.  The exponent is chosen by eye, not from the hardware.
+ */
+const PHOSPHOR_GAMMA = 0.6;
 
 /**
  * Maps the logical vector space onto a viewport, letterboxed at the display's
@@ -150,7 +158,7 @@ export function createCanvasDisplay(
     ctx.lineWidth = lineWidth * Math.max(transform.scale, 0.25);
     for (const line of lines) {
       ctx.strokeStyle = colourFor(line);
-      ctx.globalAlpha = alpha * line.intensity;
+      ctx.globalAlpha = alpha * Math.max(line.intensity, 0) ** PHOSPHOR_GAMMA;
       const [x0, y0] = screenToCanvas(transform, line.x0, line.y0);
       const [x1, y1] = screenToCanvas(transform, line.x1, line.y1);
       ctx.beginPath();

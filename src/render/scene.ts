@@ -36,9 +36,12 @@ import { clipSegment } from './clip';
 import type { VectorDisplay } from './vectorDisplay';
 
 /**
- * Backdrop brightness. The vector ROM tags the horizon and mountain strokes at
- * intensity 6 of 15 (docs/reference/original-game.md section 1); the volcano
- * rocks take theirs from the top three bits of their remaining lifetime.
+ * Backdrop brightness.  The sources disagree on the scale - the vector ROM decode
+ * in `data/pictures.ts` reads the horizon stroke as intensity 3, the disassembly
+ * notes call it 6 (docs/reference/original-game.md section 1) - so this takes the
+ * higher reading against the vector generator's 0..15 range, which puts the
+ * backdrop clearly below full-intensity foreground objects.  The volcano rocks
+ * take theirs from the top three bits of their remaining lifetime, as the ROM does.
  */
 const BACKDROP_INTENSITY = 6 / INTENSITY_MAX;
 const ROCK_INTENSITY_LEVELS = 7;
