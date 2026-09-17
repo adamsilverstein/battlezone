@@ -32,7 +32,7 @@ import type { Debris, Enemy, GameState, Shell, World } from '../game/types';
 import { clamp, lerp, wrapAngle } from '../engine/math';
 import type { Camera } from './camera';
 import { drawCrack } from './crack';
-import { drawHud } from './hud';
+import { createRadarBlips, drawHud } from './hud';
 import { drawWorldObjects } from './objects';
 import { drawHorizon } from './scene';
 import {
@@ -124,6 +124,9 @@ export function createRenderer(d: VectorDisplay): {
   let lastPhase: GameState['phase'] | null = null;
   let lastPhaseTicks = Number.NaN;
   let lastCameraSnap = Number.NaN;
+  // The radar blip levels are the one piece of display state the world does not
+  // keep: the ROM holds them in `BLIP` and fades them a step a tick.
+  const blips = createRadarBlips();
   let previous: Snapshot = {
     camera: { x: 0, z: 0, y: EYE_HEIGHT_UNITS, heading: 0 },
     entities: new Map(),
@@ -155,6 +158,11 @@ export function createRenderer(d: VectorDisplay): {
         (state.cameraSnap ?? 0) !== lastCameraSnap;
       lastPhase = state.phase;
       lastCameraSnap = state.cameraSnap ?? 0;
+
+      if (snapRequested) blips.reset();
+      // Blips fade per game tick, not per frame, and off the real world rather
+      // than the interpolated view.
+      if (tick !== lastTick) blips.advance(world);
 
       if (tick !== lastTick || snapRequested) {
         const snapshot = snapshotOf(world);
@@ -248,6 +256,7 @@ export function createRenderer(d: VectorDisplay): {
           showAlert: !frozenHud,
           blinkTick: tick,
           highScore,
+          blips,
         });
         if (state.phase === 'attractTitle') drawTitle(d, state.phaseTicks);
         if (state.phase === 'gameOver') drawGameOver(d, state.message);

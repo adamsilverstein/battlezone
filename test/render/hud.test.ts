@@ -20,7 +20,7 @@ import type { Picture2D } from '../../src/data/types';
 import { TAU } from '../../src/engine/math';
 import type { Enemy, Shell, World } from '../../src/game/types';
 import { createAttractWorld } from '../../src/game/world';
-import { drawHud, drawRadar, drawReticle } from '../../src/render/hud';
+import { createRadarBlips, drawHud, drawRadar, drawReticle } from '../../src/render/hud';
 import { drawText } from '../../src/render/text';
 import {
   createRecordingDisplay,
@@ -182,6 +182,61 @@ describe('drawRadar', () => {
   it('draws no blip for a dead enemy', () => {
     const enemy = tankAt(1000, 1000, { alive: false });
     expect(dots(record((d) => drawRadar(d, worldWith({ enemies: [enemy] }))))).toHaveLength(0);
+  });
+});
+
+describe('createRadarBlips', () => {
+  const enemy = tankAt(ENEMY_IN_RANGE_UNITS / 2, 0);
+  /** The sweep sitting exactly on that enemy's bearing. */
+  const swept = (): World => worldWith({ enemies: [enemy], radarAngle: TAU / 4 });
+  /** The sweep well away from it. */
+  const elsewhere = (): World => worldWith({ enemies: [enemy], radarAngle: 0 });
+
+  it('lights the blip when the sweep passes and fades it a step a tick', () => {
+    const blips = createRadarBlips();
+    blips.advance(swept());
+    expect(blips.levelFor(enemy.id)).toBe(RADAR_BLIP_BRIGHTNESS);
+    for (const step of [1, 2, 3]) {
+      blips.advance(elsewhere());
+      expect(blips.levelFor(enemy.id)).toBe(RADAR_BLIP_BRIGHTNESS - RADAR_BLIP_DECAY * step);
+    }
+    // And it goes out rather than going negative.
+    for (let i = 0; i < RADAR_BLIP_BRIGHTNESS / RADAR_BLIP_DECAY; i += 1)
+      blips.advance(elsewhere());
+    expect(blips.levelFor(enemy.id)).toBe(0);
+  });
+
+  it('holds the level steady while the player turns', () => {
+    // The bearing is measured from the player's heading, so a pivot slides the
+    // enemy under the sweep - and a level derived from those angles would jump
+    // about while the tank turns. `BLIP` is a byte in RAM and does not.
+    const blips = createRadarBlips();
+    blips.advance(swept());
+    const turned = swept();
+    turned.player = { ...turned.player, heading: TAU / 8 };
+    blips.advance(turned);
+    expect(blips.levelFor(enemy.id)).toBe(RADAR_BLIP_BRIGHTNESS - RADAR_BLIP_DECAY);
+  });
+
+  it('forgets the field it was holding when it is reset', () => {
+    const blips = createRadarBlips();
+    blips.advance(swept());
+    blips.reset();
+    expect(blips.levelFor(enemy.id)).toBe(0);
+  });
+
+  it('draws the held level rather than one derived from the angles', () => {
+    const blips = createRadarBlips();
+    blips.advance(swept());
+    blips.advance(elsewhere());
+    // The sweep is on the enemy again, but the held blip has been faded once, so
+    // the dot is dimmer than the sweep alone would make it.
+    const lines = dots(record((d) => drawRadar(d, swept(), blips)));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.intensity).toBeCloseTo(
+      (RADAR_BLIP_BRIGHTNESS - RADAR_BLIP_DECAY) / INTENSITY_BYTE_MAX,
+      6,
+    );
   });
 });
 

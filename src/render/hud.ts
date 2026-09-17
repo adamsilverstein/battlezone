@@ -83,21 +83,66 @@ function radarPoint(radius: number, bearing: number): readonly [number, number] 
   return [cx + radius * Math.sin(bearing), cy + radius * Math.cos(bearing)];
 }
 
+/** How far past the enemy's bearing the sweep line has travelled, in heading units. */
+function unitsPastBearing(sweep: number, bearing: number): number {
+  const past = (sweep - bearing) / TANGLE_UNIT_RADIANS;
+  return ((past % HEADING_UNITS_PER_TURN) + HEADING_UNITS_PER_TURN) % HEADING_UNITS_PER_TURN;
+}
+
 /**
- * The blip's brightness.  `BLIP` is set to `$F0` when the sweep passes within
- * `RADAR_BLIP_WINDOW` heading units of the enemy's bearing and decays by 8 per
- * tick afterwards, so it fades over 30 ticks while the sweep comes round again
- * (BZONE.MAC.txt:7775-7803, 8017-8025).  The world keeps no blip state, so the
- * decay is read back from how far the sweep has travelled past the bearing.
+ * The blip's brightness derived from the angles alone, for a caller with nowhere
+ * to keep it: full while the sweep is inside `RADAR_BLIP_WINDOW` of the bearing,
+ * and one `RADAR_BLIP_DECAY` step dimmer for every tick it has travelled since.
  */
 function blipLevel(sweep: number, bearing: number): number {
-  const past = sweep - bearing;
-  const unitsPast =
-    (((past / TANGLE_UNIT_RADIANS) % HEADING_UNITS_PER_TURN) + HEADING_UNITS_PER_TURN) %
-    HEADING_UNITS_PER_TURN;
+  const unitsPast = unitsPastBearing(sweep, bearing);
   if (unitsPast <= RADAR_BLIP_WINDOW) return RADAR_BLIP_BRIGHTNESS;
-  const ticksPast = Math.floor(unitsPast / RADAR_SWEEP_PER_TICK);
-  return RADAR_BLIP_BRIGHTNESS - RADAR_BLIP_DECAY * ticksPast;
+  return RADAR_BLIP_BRIGHTNESS - RADAR_BLIP_DECAY * Math.floor(unitsPast / RADAR_SWEEP_PER_TICK);
+}
+
+/**
+ * The blip levels, one per unit, held from tick to tick.
+ *
+ * `BLIP` is a byte in RAM: `DRADAR` loads it with `$F0` when the sweep passes
+ * within `RADAR_BLIP_WINDOW` heading units of the enemy's bearing and takes 8 off
+ * it every tick afterwards, so the dot flashes and fades over the 30 ticks the
+ * sweep needs to come round again (BZONE.MAC.txt:7775-7803, 8017-8025).
+ *
+ * Deriving that level from the angles instead, as `blipLevel` does, is only the
+ * same thing while the player stands still: the bearing is measured from the
+ * player's own heading, so turning slides it under the sweep and the blip
+ * flickers brighter and dimmer as the tank pivots.  Holding the level is both
+ * what the ROM does and what stops the flicker.  It is renderer state, not world
+ * state - nothing in the simulation depends on it.
+ */
+export interface RadarBlips {
+  /** One game tick: fade every blip, and relight the one the sweep just passed. */
+  advance(world: World): void;
+  /** A unit's level on the ROM's 0..255 scale; 0 once it has faded out. */
+  levelFor(id: number): number;
+  /** Forget everything, for a battlefield that has been replaced. */
+  reset(): void;
+}
+
+export function createRadarBlips(): RadarBlips {
+  const levels = new Map<number, number>();
+  return {
+    advance(world: World): void {
+      for (const [id, level] of levels) {
+        const faded = level - RADAR_BLIP_DECAY;
+        if (faded > 0) levels.set(id, faded);
+        else levels.delete(id);
+      }
+      const unit = nearestEnemyUnit(world);
+      if (!unit) return;
+      const bearing = wrapAngle(bearingTo(world.player.pos, unit.pos) - world.player.heading);
+      if (unitsPastBearing(world.radarAngle, bearing) <= RADAR_BLIP_WINDOW) {
+        levels.set(unit.id, RADAR_BLIP_BRIGHTNESS);
+      }
+    },
+    levelFor: (id) => levels.get(id) ?? 0,
+    reset: () => levels.clear(),
+  };
 }
 
 /**
@@ -106,7 +151,7 @@ function blipLevel(sweep: number, bearing: number): number {
  * the screen - and the sweep and the blip bearing are measured clockwise from
  * there, which is why the player's heading is subtracted rather than added.
  */
-export function drawRadar(d: VectorDisplay, world: World): void {
+export function drawRadar(d: VectorDisplay, world: World, blips?: RadarBlips): void {
   const [cx, cy] = RADAR_CENTRE;
 
   RADAR.polylines.forEach((stroke, i) => d.polyline(stroke, RADAR_STROKE_INTENSITY[i]));
@@ -127,7 +172,9 @@ export function drawRadar(d: VectorDisplay, world: World): void {
   // Out of radar range is the same test as the range alert: TDIST >= 0x80.
   if (range >= ENEMY_IN_RANGE_UNITS) return;
   const bearing = wrapAngle(bearingTo(world.player.pos, target.pos) - world.player.heading);
-  const level = blipLevel(world.radarAngle, bearing);
+  // Held levels when the caller keeps them, which is what the renderer does;
+  // derived from the angles otherwise.
+  const level = blips ? blips.levelFor(target.id) : blipLevel(world.radarAngle, bearing);
   if (level <= 0) return;
   // The ROM emits the dot twice to brighten it; one lit point is enough here
   // because the display rounds its line caps.
@@ -198,9 +245,10 @@ function reticleVisible(world: World, blinkTick: number): boolean {
  *   over the crack or over the initials the player is entering.
  *
  * All three default to true.  `blinkTick` is the frame counter the message flash
- * and the reticle blink are phased from, and `highScore` is the number the HIGH
+ * and the reticle blink are phased from, `highScore` is the number the HIGH
  * SCORE line shows - the best of the table and the score in hand, which only the
- * game state knows.
+ * game state knows - and `blips` is the caller's held radar levels, without which
+ * they are derived from the sweep angle instead.
  */
 export function drawHud(
   d: VectorDisplay,
@@ -211,9 +259,10 @@ export function drawHud(
     highScore: number;
     showRadar?: boolean;
     showAlert?: boolean;
+    blips?: RadarBlips;
   },
 ): void {
-  if (opts.showRadar ?? true) drawRadar(d, world);
+  if (opts.showRadar ?? true) drawRadar(d, world, opts.blips);
   drawReserveTanks(d, world.lives);
   drawMessage(d, SCORE, withScore(SCORE.text, world.score));
   drawMessage(d, HIGH_SCORE, withScore(HIGH_SCORE.text, opts.highScore));

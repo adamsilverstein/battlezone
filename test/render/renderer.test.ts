@@ -4,7 +4,7 @@ import { createAttractWorld } from '../../src/game/world';
 import type { Enemy, GameState, Shell, World } from '../../src/game/types';
 import type { Camera } from '../../src/render/camera';
 import { drawCrack } from '../../src/render/crack';
-import { drawHud, drawReticle } from '../../src/render/hud';
+import { createRadarBlips, drawHud, drawReticle, type RadarBlips } from '../../src/render/hud';
 import { drawWorldObjects } from '../../src/render/objects';
 import { createRenderer } from '../../src/render/renderer';
 import { drawHorizon } from '../../src/render/scene';
@@ -39,7 +39,13 @@ function stateAt(tick: number, x: number, z: number, heading: number): GameState
  * world at the camera's own position, which is all the camera tests need: the HUD
  * of an empty world is the same wherever the player stands.
  */
-function expected(cam: Camera, tick: number, state?: GameState, view?: World): RecordedLine[] {
+function expected(
+  cam: Camera,
+  tick: number,
+  state?: GameState,
+  view?: World,
+  blips?: RadarBlips,
+): RecordedLine[] {
   const shown = state ?? stateAt(tick, cam.pos.x, cam.pos.z, cam.heading);
   const world = view ?? shown.world;
   const highScore = Math.max(...shown.highScores.map((e) => e.score), world.score);
@@ -69,6 +75,7 @@ function expected(cam: Camera, tick: number, state?: GameState, view?: World): R
       showAlert: !frozenHud,
       blinkTick: tick,
       highScore,
+      blips,
     });
     if (shown.phase === 'attractTitle') drawTitle(d, shown.phaseTicks);
     if (shown.phase === 'gameOver') drawGameOver(d, shown.message);
@@ -81,6 +88,17 @@ function expected(cam: Camera, tick: number, state?: GameState, view?: World): R
 
   d.endFrame();
   return d.lines;
+}
+
+/**
+ * The radar blip levels the renderer will be holding once it has drawn these
+ * states: one fade-and-relight step per distinct world tick, which is what
+ * `createRenderer` does with the worlds it is handed.
+ */
+function blipsAfter(...states: GameState[]): RadarBlips {
+  const blips = createRadarBlips();
+  for (const state of states) blips.advance(state.world);
+  return blips;
 }
 
 function enemyAt(x: number, z: number, heading: number, parts: Partial<Enemy> = {}): Enemy {
@@ -385,7 +403,7 @@ describe('createRenderer', () => {
     const halfway = { ...second.world };
     halfway.enemies = [enemyAt(200, 8000, 0.5)];
     halfway.shells = [shellAt(0, 2000, 200)];
-    expect(d.lines).toEqual(expected(CAM_AT_ORIGIN, 1, second, halfway));
+    expect(d.lines).toEqual(expected(CAM_AT_ORIGIN, 1, second, halfway, blipsAfter(first, second)));
   });
 
   it('interpolates debris but only its yaw', () => {
@@ -415,11 +433,14 @@ describe('createRenderer', () => {
   it('snaps an entity that is new this tick rather than blending from nothing', () => {
     const d = createRecordingDisplay();
     const renderer = createRenderer(d);
-    renderer.render(stateAt(0, 0, 0, 0), 0);
+    const empty = stateAt(0, 0, 0, 0);
+    renderer.render(empty, 0);
     const second = stateAt(1, 0, 0, 0);
     second.world.enemies = [enemyAt(1000, 8000, 0)];
     renderer.render(second, 0.5);
-    expect(d.lines).toEqual(expected(CAM_AT_ORIGIN, 1, second));
+    expect(d.lines).toEqual(
+      expected(CAM_AT_ORIGIN, 1, second, undefined, blipsAfter(empty, second)),
+    );
   });
 
   it('snaps entity positions when the loop skips ticks', () => {
@@ -431,7 +452,7 @@ describe('createRenderer', () => {
     const later = stateAt(4, 0, 0, 0);
     later.world.enemies = [enemyAt(2000, 8000, 1)];
     renderer.render(later, 0.5);
-    expect(d.lines).toEqual(expected(CAM_AT_ORIGIN, 4, later));
+    expect(d.lines).toEqual(expected(CAM_AT_ORIGIN, 4, later, undefined, blipsAfter(first, later)));
   });
 
   it('cracks the screen while the player is dead, one group per tick', () => {
