@@ -28,6 +28,7 @@ function makeWorld(obstacles: Obstacle[] = []): World {
 const obstacle = (kind: Obstacle['kind'], z: number): Obstacle => ({
   kind,
   pos: { x: 0, z },
+  heading: 0,
   radius: 960,
 });
 
@@ -135,7 +136,7 @@ describe('updateShells', () => {
   });
 
   it('bursts on a tall box and leaves the field', () => {
-    const world = makeWorld([obstacle('tallCube', 5000)]);
+    const world = makeWorld([obstacle('box', 5000)]);
     firePlayerShell(world);
     const { events } = runUntilEvent(world);
     expect(events).toEqual<GameEvent[]>([{ type: 'shellHitObstacle' }]);
@@ -143,7 +144,7 @@ describe('updateShells', () => {
   });
 
   it('flies straight over a short box', () => {
-    const world = makeWorld([obstacle('cube', 5000)]);
+    const world = makeWorld([obstacle('boxShort', 5000)]);
     firePlayerShell(world);
     const { events } = runUntilEvent(world);
     expect(events).toEqual<GameEvent[]>([{ type: 'shellExpired' }]);
@@ -161,7 +162,7 @@ describe('updateShells', () => {
   });
 
   it('flies enemy shells too', () => {
-    const world = makeWorld([obstacle('tallCube', 5000)]);
+    const world = makeWorld([obstacle('box', 5000)]);
     world.shells = [
       { id: 1, owner: 'enemy', pos: { x: 0, z: 0 }, y: 0, heading: 0, ticksLeft: 10 },
     ];
@@ -178,7 +179,7 @@ describe('updateShells', () => {
   });
 
   it('reports one event per shell that ends', () => {
-    const world = makeWorld([obstacle('tallCube', 1000)]);
+    const world = makeWorld([obstacle('box', 1000)]);
     world.shells = [
       { id: 1, owner: 'player', pos: { x: 0, z: 0 }, y: 0, heading: 0, ticksLeft: 10 },
       { id: 2, owner: 'enemy', pos: { x: 0, z: 0 }, y: 0, heading: 0, ticksLeft: 0.25 },

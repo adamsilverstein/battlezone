@@ -8,17 +8,15 @@
  * `Rng` only to match the shape of the other world builders and never draws from
  * it.
  *
- * NAMING
- * ------
- * `ObstacleKind` in `game/types.ts` and the ROM's own model names do not line up:
- * the four shapes are a narrow pyramid, a wide pyramid, a tall box and a short
- * box, while the shared type calls them `pyramid`, `wideCube`, `tallCube` and
- * `cube`.  `OBSTACLE_MODEL_BY_KIND` is the bridge, and is also how the renderer
- * looks up the wireframe in `data/models.ts`.  (`wideCube` is a *pyramid*; the
- * shared type is the contract, so the mismatch is documented rather than fixed.)
+ * `ObstacleKind` names the ROM's four shapes - narrow pyramid, wide pyramid, tall
+ * box, short box - with the same strings the ROM tables and `data/models.ts` use,
+ * so an obstacle's `kind` is directly its wireframe key and its key into both
+ * radius tables.  No mapping needed, and no assertion either: `kind: o.model` and
+ * the radius lookups below only compile while `ObstacleKind` and the ROM tables'
+ * own `ObstacleModel` agree, so a divergence is a type error rather than a
+ * silently missing wireframe.
  */
 
-import type { ObstacleModel } from '../data/constants';
 import {
   HEADING_UNITS_PER_TURN,
   OBSTACLES,
@@ -30,22 +28,6 @@ import { TAU, wrapAngle } from '../engine/math';
 import { wrapCoordinate } from './collision';
 import type { Obstacle, ObstacleKind, Rng } from './types';
 
-/** The ROM model name - and so the wireframe in `data/models.ts` - for each kind. */
-export const OBSTACLE_MODEL_BY_KIND = {
-  /** Narrow pyramid, object $00. */
-  pyramid: 'pyramid',
-  /** Wide pyramid, object $0c. */
-  wideCube: 'pyramidWide',
-  /** Tall box, object $01. */
-  tallCube: 'box',
-  /** Short box, object $0f - the one shells fly over. */
-  cube: 'boxShort',
-} as const satisfies Record<ObstacleKind, ObstacleModel>;
-
-const KIND_BY_MODEL = Object.fromEntries(
-  Object.entries(OBSTACLE_MODEL_BY_KIND).map(([kind, model]) => [model, kind]),
-) as Record<ObstacleModel, ObstacleKind>;
-
 /**
  * One `TANGLE` unit in radians.  The ROM's angles count the opposite way round
  * from `Player.heading` - increasing `TANGLE` turns left - so converting flips
@@ -54,23 +36,16 @@ const KIND_BY_MODEL = Object.fromEntries(
 const TANGLE_UNIT_RADIANS = TAU / HEADING_UNITS_PER_TURN;
 
 /**
- * Each obstacle's yaw, in the simulation's clockwise radians, index-aligned with
- * `placeObstacles`.  `Obstacle` in `game/types.ts` has nowhere to keep it, and
- * the layout is fixed, so the renderer reads it from here by index.
- */
-export const OBSTACLE_HEADINGS: readonly number[] = OBSTACLES.map((o) =>
-  wrapAngle(-o.orientation * TANGLE_UNIT_RADIANS),
-);
-
-/**
  * The fixed ROM layout.  ROM y becomes world z, and both coordinates are folded
- * into the signed half of the torus so the player's start sits at the origin.
+ * into the signed half of the torus so the player's start sits at the origin; the
+ * orientation byte becomes a clockwise heading in radians.
  */
 export function placeObstacles(rng: Rng): Obstacle[] {
   void rng; // The layout is a ROM table; nothing here is random.
   return OBSTACLES.map((o) => ({
-    kind: KIND_BY_MODEL[o.model],
+    kind: o.model,
     pos: { x: wrapCoordinate(o.x), z: wrapCoordinate(o.y) },
+    heading: wrapAngle(-o.orientation * TANGLE_UNIT_RADIANS),
     radius: OBSTACLE_TANK_RADIUS[o.model],
   }));
 }
@@ -81,5 +56,5 @@ export function placeObstacles(rng: Rng): Obstacle[] {
  * twice (BZONE.MAC.txt:4945-4953), and the short box entry really is zero.
  */
 export function shellHitRadius(kind: ObstacleKind): number {
-  return SHELL_OBSTACLE_RADIUS_QUARTERS[OBSTACLE_MODEL_BY_KIND[kind]] * SHELL_OBSTACLE_RADIUS_UNIT;
+  return SHELL_OBSTACLE_RADIUS_QUARTERS[kind] * SHELL_OBSTACLE_RADIUS_UNIT;
 }

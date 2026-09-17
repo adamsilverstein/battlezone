@@ -135,7 +135,9 @@ describe('updatePlayer tread kinematics', () => {
 });
 
 describe('updatePlayer obstacle blocking', () => {
-  const wall = (): Obstacle[] => [{ kind: 'cube', pos: { x: 0, z: 1200 }, radius: 960 }];
+  const wall = (): Obstacle[] => [
+    { kind: 'boxShort', pos: { x: 0, z: 1200 }, heading: 0, radius: 960 },
+  ];
 
   it('backs the move out and reports it once per contact', () => {
     const world = makeWorld(wall());
@@ -163,7 +165,7 @@ describe('updatePlayer obstacle blocking', () => {
   });
 
   it('is stopped a player radius out, so the obstacle stays in view', () => {
-    const far = [{ kind: 'cube' as const, pos: { x: 0, z: 4000 }, radius: 960 }];
+    const far = [{ kind: 'boxShort' as const, pos: { x: 0, z: 4000 }, heading: 0, radius: 960 }];
     const world = makeWorld(far);
     let events: GameEvent[] = [];
     for (let tick = 0; tick < 40 && events.length === 0; tick += 1) {
@@ -203,7 +205,9 @@ describe('resetPlayer', () => {
   });
 
   it('re-arms the blocked report', () => {
-    const world = makeWorld([{ kind: 'cube', pos: { x: 0, z: 1200 }, radius: 960 }]);
+    const world = makeWorld([
+      { kind: 'boxShort', pos: { x: 0, z: 1200 }, heading: 0, radius: 960 },
+    ]);
     updatePlayer(world, sticks(1, 1));
     resetPlayer(world);
     expect(updatePlayer(world, sticks(1, 1))).toEqual<GameEvent[]>([{ type: 'motionBlocked' }]);

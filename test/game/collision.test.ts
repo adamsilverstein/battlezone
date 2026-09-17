@@ -9,8 +9,9 @@ import {
 import type { Obstacle } from '../../src/game/types';
 
 const obstacle = (x: number, z: number, radius: number): Obstacle => ({
-  kind: 'cube',
+  kind: 'boxShort',
   pos: { x, z },
+  heading: 0,
   radius,
 });
 

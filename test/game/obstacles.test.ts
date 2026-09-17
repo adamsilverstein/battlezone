@@ -8,12 +8,7 @@ import {
 } from '../../src/data/constants';
 import { MODELS } from '../../src/data/models';
 import { createRng } from '../../src/engine/rng';
-import {
-  OBSTACLE_HEADINGS,
-  OBSTACLE_MODEL_BY_KIND,
-  placeObstacles,
-  shellHitRadius,
-} from '../../src/game/obstacles';
+import { placeObstacles, shellHitRadius } from '../../src/game/obstacles';
 
 describe('placeObstacles', () => {
   it('lays out the 21 obstacles of the ROM table', () => {
@@ -31,16 +26,22 @@ describe('placeObstacles', () => {
     expect(a[0]).not.toBe(b[0]);
   });
 
-  it('keeps the ROM order so the orientation table still lines up', () => {
+  it('keeps the ROM order, and names each kind after its ROM shape', () => {
     const placed = placeObstacles(createRng(0));
     for (const [i, rom] of OBSTACLES.entries()) {
-      expect(OBSTACLE_MODEL_BY_KIND[placed[i]!.kind], `obstacle ${i}`).toBe(rom.model);
+      expect(placed[i]!.kind, `obstacle ${i}`).toBe(rom.model);
+    }
+  });
+
+  it('uses a kind that is also the key of its wireframe model', () => {
+    for (const o of placeObstacles(createRng(0))) {
+      expect(MODELS, o.kind).toHaveProperty(o.kind);
     }
   });
 
   it('gives every obstacle its PROXTB vehicle radius', () => {
     for (const o of placeObstacles(createRng(0))) {
-      expect(o.radius).toBe(OBSTACLE_TANK_RADIUS[OBSTACLE_MODEL_BY_KIND[o.kind]]);
+      expect(o.radius).toBe(OBSTACLE_TANK_RADIUS[o.kind]);
     }
   });
 
@@ -62,25 +63,17 @@ describe('placeObstacles', () => {
       expect(Math.abs(o.pos.x) + Math.abs(o.pos.z)).toBeGreaterThan(o.radius);
     }
   });
-});
 
-describe('OBSTACLE_MODEL_BY_KIND', () => {
-  it('names a wireframe model for every obstacle kind', () => {
-    for (const model of Object.values(OBSTACLE_MODEL_BY_KIND)) {
-      expect(MODELS, model).toHaveProperty(model);
-    }
-  });
-});
-
-describe('OBSTACLE_HEADINGS', () => {
-  it('gives every obstacle a clockwise heading in radians', () => {
-    expect(OBSTACLE_HEADINGS).toHaveLength(OBSTACLE_COUNT);
+  it('turns the ROM orientation byte into a clockwise heading in radians', () => {
+    const placed = placeObstacles(createRng(0));
     // TANGLE counts the other way round, so $40 - a quarter turn left - is -PI/2.
-    expect(OBSTACLE_HEADINGS[0]).toBeCloseTo(0, 12);
-    expect(OBSTACLE_HEADINGS[3]).toBeCloseTo(-Math.PI / 2, 12);
-    for (const heading of OBSTACLE_HEADINGS) {
-      expect(heading).toBeGreaterThan(-Math.PI - 1e-9);
-      expect(heading).toBeLessThanOrEqual(Math.PI);
+    expect(OBSTACLES[0]!.orientation).toBe(0x00);
+    expect(placed[0]!.heading).toBeCloseTo(0, 12);
+    expect(OBSTACLES[3]!.orientation).toBe(0x40);
+    expect(placed[3]!.heading).toBeCloseTo(-Math.PI / 2, 12);
+    for (const o of placed) {
+      expect(o.heading).toBeGreaterThan(-Math.PI - 1e-9);
+      expect(o.heading).toBeLessThanOrEqual(Math.PI);
     }
   });
 });
@@ -88,11 +81,11 @@ describe('OBSTACLE_HEADINGS', () => {
 describe('shellHitRadius', () => {
   it('is the PRXTBL entry converted from quarter-units to world units', () => {
     expect(shellHitRadius('pyramid')).toBe(SHELL_OBSTACLE_RADIUS_QUARTERS.pyramid * 4);
-    expect(shellHitRadius('tallCube')).toBe(SHELL_OBSTACLE_RADIUS_QUARTERS.box * 4);
-    expect(shellHitRadius('wideCube')).toBe(SHELL_OBSTACLE_RADIUS_QUARTERS.pyramidWide * 4);
+    expect(shellHitRadius('box')).toBe(SHELL_OBSTACLE_RADIUS_QUARTERS.box * 4);
+    expect(shellHitRadius('pyramidWide')).toBe(SHELL_OBSTACLE_RADIUS_QUARTERS.pyramidWide * 4);
   });
 
   it('is zero for the short box, which shells fly straight over', () => {
-    expect(shellHitRadius('cube')).toBe(0);
+    expect(shellHitRadius('boxShort')).toBe(0);
   });
 });

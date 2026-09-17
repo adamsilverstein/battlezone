@@ -119,7 +119,7 @@ describe('updateWorld', () => {
 
   it('reports the player, then the shells, then the systems', () => {
     const world = createWorld(createRng(1));
-    world.obstacles = [{ kind: 'cube', pos: { x: 0, z: 1200 }, radius: 960 }];
+    world.obstacles = [{ kind: 'boxShort', pos: { x: 0, z: 1200 }, heading: 0, radius: 960 }];
     world.shells = [
       { id: 1, owner: 'enemy', pos: { x: 0, z: 0 }, y: 0, heading: 0, ticksLeft: 0.25 },
     ];
