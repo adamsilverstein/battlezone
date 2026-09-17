@@ -102,8 +102,8 @@ npm run preview  # serve dist/
 
 The first `npm run test:e2e` needs a browser: `npx playwright install --with-deps
 chromium`. It builds with `vite build --mode test`, which is a production bundle
-that also exposes `window.__battlezone` - a read-only view of the phase and score
-for the test to assert on. The production build has no such hook.
+that also exposes `window.__battlezone` - a read-only view of the phase and the
+tick counter for the test to assert on. The production build has no such hook.
 
 `GITHUB_PAGES=true npm run build` produces the bundle Pages serves, with asset
 paths under `/battlezone/`. Pushing to `main` deploys it.

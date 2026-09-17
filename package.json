@@ -2,7 +2,7 @@
   "name": "battlezone",
   "version": "0.1.0",
   "private": true,
-  "description": "Faithful JavaScript recreation of Atari's 1980 vector arcade game Battlezone",
+  "description": "A browser recreation of Atari's 1980 vector arcade game Battlezone",
   "type": "module",
   "scripts": {
     "dev": "vite",

@@ -18,13 +18,16 @@ import { expect, test, type Page } from '@playwright/test';
 
 /** What `main.ts` publishes in DEV and test builds. */
 interface BattlezoneWindow {
-  __battlezone?: { phase: string };
+  __battlezone?: { phase: string; tick: number };
   /** Counted by the init script below, one per `new AudioContext()`. */
   __audioContexts?: string[];
 }
 
 /** Ticks are 64 ms, so a second of game time is a generous wait for a phase change. */
 const PHASE_TIMEOUT = 3_000;
+
+/** Ticks in a second of game time, the rate `src/data/constants.ts` runs at. */
+const TICK_HZ = 15.625;
 
 /** A pixel counts as lit past this sum of channels, which skips the phosphor's tail. */
 const LIT_THRESHOLD = 24;
@@ -74,12 +77,21 @@ async function pixels(page: Page): Promise<{ lit: number; red: number }> {
   }, LIT_THRESHOLD);
 }
 
-async function phase(page: Page): Promise<string> {
+function hook(page: Page): Promise<{ phase: string; tick: number }> {
   return page.evaluate(() => {
     const w = window as unknown as BattlezoneWindow;
     if (!w.__battlezone) throw new Error('window.__battlezone missing: build with --mode test');
-    return w.__battlezone.phase;
+    return { phase: w.__battlezone.phase, tick: w.__battlezone.tick };
   });
+}
+
+async function phase(page: Page): Promise<string> {
+  return (await hook(page)).phase;
+}
+
+/** Every `AudioContext` the page has constructed, in the order it made them. */
+function audioContexts(page: Page): Promise<string[]> {
+  return page.evaluate(() => (window as unknown as BattlezoneWindow).__audioContexts ?? []);
 }
 
 /** Waits for the phase to settle on `wanted`, polling the getter. */
@@ -110,6 +122,9 @@ test.describe('the built game', () => {
     const attract = await pixels(page);
     expect(attract.red).toBe(0);
     expect(await phase(page)).toMatch(/^attract/);
+    // Nothing has been touched yet, so the autoplay policy should have kept the
+    // game from reaching for an audio context at all.
+    expect(await audioContexts(page)).toEqual([]);
 
     // One press, not two: a tap that lands entirely between two 64 ms polls has
     // to survive to the next one (regression, see input/keyboard.ts).
@@ -122,16 +137,18 @@ test.describe('the built game', () => {
 
     // A gesture has happened, so the audio system should have its context by now;
     // headless Chromium may leave it suspended, which is still "created".
-    const contexts = await page.evaluate(
-      () => (window as unknown as BattlezoneWindow).__audioContexts ?? [],
-    );
+    const contexts = await audioContexts(page);
     expect(contexts.length).toBeGreaterThan(0);
     expect(['running', 'suspended']).toContain(contexts[0]);
 
-    // Drive forward for a second of real time: both treads ahead.
+    // Drive forward for a second of game time: both treads ahead, waiting on the
+    // simulation's own tick counter rather than on the wall clock.
+    const from = (await hook(page)).tick;
     await page.keyboard.down('KeyW');
     await page.keyboard.down('ArrowUp');
-    await page.waitForTimeout(1_000);
+    await expect
+      .poll(async () => (await hook(page)).tick, { timeout: PHASE_TIMEOUT })
+      .toBeGreaterThanOrEqual(from + TICK_HZ);
     await page.keyboard.up('KeyW');
     await page.keyboard.up('ArrowUp');
 

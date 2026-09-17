@@ -24,7 +24,9 @@ export default defineConfig({
   workers: 1,
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
-  reporter: 'list',
+  // The list reporter for the log, and the HTML one so a failing CI run has a
+  // report to upload; `open: 'never'` keeps it from trying to launch a browser.
+  reporter: [['list'], ['html', { open: 'never' }]],
   timeout: 60_000,
   use: {
     baseURL: `http://localhost:${PORT}/`,

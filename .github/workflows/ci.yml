@@ -30,18 +30,19 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      # Keyed by the Playwright version, which is what decides the browser build.
+      # The Playwright version decides which browser build is downloaded, so it is
+      # the cache key; read it from the installed package rather than the range.
+      - name: Read the Playwright version
+        id: playwright
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
       - name: Cache Playwright browsers
-        id: playwright-cache
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          key: playwright-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+      # Cheap when the browser is cached, and the system libraries are needed
+      # either way, so this runs unconditionally.
       - run: npx playwright install --with-deps chromium
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-      # A cached browser still needs its system libraries.
-      - run: npx playwright install-deps chromium
-        if: steps.playwright-cache.outputs.cache-hit == 'true'
       - run: npm run test:e2e
       - uses: actions/upload-artifact@v4
         if: failure()
