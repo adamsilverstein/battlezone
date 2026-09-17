@@ -42,6 +42,24 @@ const HUD_COLOUR = '#ff3322';
 const FIELD_COLOUR = '#33ff66';
 const MONOCHROME_COLOUR = '#e8ffe8';
 
+/**
+ * How far apart the two ends of a dot are drawn, in canvas pixels.
+ *
+ * A dot is a zero-length vector - the ROM's own way of lighting a single point,
+ * and what the missile's exhaust spatter and the radar blip are made of - but a
+ * browser paints nothing at all for a stroked path whose ends are the same
+ * point, round line cap or not. A hair of length is enough to make the cap draw
+ * its circle, and is far too small to read as a line.
+ *
+ * It is also the line below which a segment is treated as a dot rather than a
+ * line, because Chrome stops painting a little way above zero rather than at it:
+ * measured against a canvas, a segment paints down to about a millionth of a
+ * pixel and vanishes below that, at every device pixel ratio from 2 down to
+ * 0.25. So an edge seen so nearly end-on that it is shorter than a dot is drawn
+ * as the dot it already looks like, instead of falling into that hole.
+ */
+const DOT_LENGTH = 0.01;
+
 /** The glow pass is wide and faint, the bright pass thin and strong. */
 const GLOW_WIDTH = 7;
 const GLOW_ALPHA = 0.2;
@@ -169,9 +187,14 @@ export function createCanvasDisplay(
       ctx.globalAlpha = alpha * Math.max(line.intensity, 0) ** PHOSPHOR_GAMMA;
       const [x0, y0] = screenToCanvas(transform, line.x0, line.y0);
       const [x1, y1] = screenToCanvas(transform, line.x1, line.y1);
+      // A dot arrives with both ends in the same place, and an edge seen end-on
+      // with them too close together for the browser to paint; see DOT_LENGTH.
+      const dx = x1 - x0;
+      const dy = y1 - y0;
+      const isDot = dx * dx + dy * dy < DOT_LENGTH * DOT_LENGTH;
       ctx.beginPath();
       ctx.moveTo(x0, y0);
-      ctx.lineTo(x1, y1);
+      ctx.lineTo(isDot ? x0 + DOT_LENGTH : x1, isDot ? y0 : y1);
       ctx.stroke();
     }
   };
@@ -204,7 +227,8 @@ export function createCanvasDisplay(
         HEIGHT * transform.scale,
       );
       ctx.clip();
-      // Round caps make zero-length dot vectors visible and soften the strokes.
+      // Round caps are what turn a dot into a circle - see DOT_LENGTH - and they
+      // soften every other stroke.
       ctx.lineCap = 'round';
       pass(GLOW_WIDTH, GLOW_ALPHA);
       pass(BRIGHT_WIDTH, BRIGHT_ALPHA);

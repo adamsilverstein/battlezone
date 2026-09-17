@@ -114,6 +114,42 @@ describe('createCanvasDisplay', () => {
     ]);
   });
 
+  it('gives a dot enough length for a browser to paint it', () => {
+    // A browser paints nothing at all for a stroked path whose two ends are the
+    // same point, round line cap or not - verified in Chrome. Every dot in the
+    // game is one of those: the radar blip, the missile's exhaust spatter. They
+    // need a hair of length before the round cap will draw the circle.
+    const { canvas, strokes } = stubCanvas();
+    const d = createCanvasDisplay(canvas);
+    d.beginFrame();
+    d.polyline([[0, 0]], 1);
+    d.endFrame();
+
+    expect(strokes.length).toBeGreaterThan(0);
+    for (const stroke of strokes) {
+      const [from, to] = stroke.points as [[number, number], [number, number]];
+      expect(to[0] === from[0] && to[1] === from[1]).toBe(false);
+      // And no more than a hair, so the dot is still a dot.
+      expect(Math.hypot(to[0] - from[0], to[1] - from[1])).toBeLessThan(0.1);
+    }
+  });
+
+  it('draws an edge seen end-on as the dot it already looks like', () => {
+    // Chrome stops painting a little way above zero length rather than at it, so
+    // a segment too short to paint is given a dot's length instead of falling
+    // into that hole.
+    const { canvas, strokes } = stubCanvas();
+    const d = createCanvasDisplay(canvas);
+    d.beginFrame();
+    d.line(0, 0, 0.0000001, 0, 1);
+    d.endFrame();
+
+    for (const stroke of strokes) {
+      const [from, to] = stroke.points as [[number, number], [number, number]];
+      expect(Math.hypot(to[0] - from[0], to[1] - from[1])).toBeGreaterThan(0.001);
+    }
+  });
+
   it('scales brightness with intensity', () => {
     const { canvas, strokes } = stubCanvas();
     const d = createCanvasDisplay(canvas, { overlay: false });

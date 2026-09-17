@@ -327,7 +327,10 @@ describe('createRenderer', () => {
     const lit = d.lines.filter((l) => l.x0 === l.x1 && l.y0 === l.y1);
 
     expect(dark).toBe(0);
-    expect(lit).toHaveLength(1);
+    // One blip, emitted twice for brightness the way `DRADAR` does - the same
+    // dot twice over, not two enemies.
+    expect(lit).toHaveLength(2);
+    expect(lit[0]).toEqual(lit[1]);
   });
 
   it('fades the radar blip once per simulated tick, not once per frame', () => {
