@@ -214,6 +214,36 @@ describe('drawModel', () => {
     }
   });
 
+  it('keeps a model rigid when it sits on the seam of the torus', () => {
+    // A shape standing on the wrap line has vertices on both sides of it. Taken
+    // into view space one at a time, the ones past the line come back from the
+    // far side of the world and the shape is drawn with its corners 65,000 units
+    // apart - which reaches the screen as a line straight across it. The object
+    // is placed once and its vertices hang off that, so it cannot come apart.
+    const wide: WireModel = {
+      name: 'wide',
+      vertices: [
+        [0, -400, -320],
+        [0, 400, -320],
+      ],
+      edges: [[0, 1]],
+    };
+    const onSeam = { x: -WORLD_SIZE / 2, z: 4000 };
+    const d = createRecordingDisplay();
+    drawModel(d, cam, wide, { x: onSeam.x, y: 0, z: onSeam.z }, { x: 0, y: 0, z: 0 });
+    // Far off to the side, so nothing of it is on screen - but nothing of it is
+    // smeared across the screen either.
+    expect(d.lines).toHaveLength(0);
+
+    // And the same shape in front of the camera is drawn once, at its own width.
+    const near = createRecordingDisplay();
+    const seamCam = { ...cam, pos: { x: onSeam.x, z: 0 } };
+    drawModel(near, seamCam, wide, { x: onSeam.x, y: 0, z: 4000 }, { x: 0, y: 0, z: 0 });
+    expect(near.lines).toHaveLength(1);
+    const line = near.lines[0]!;
+    expect(Math.abs(line.x1 - line.x0)).toBeLessThan(300);
+  });
+
   it('draws nothing for a model behind the camera', () => {
     const d = createRecordingDisplay();
     drawModel(d, cam, pole, { x: 0, y: 0, z: -4000 }, { x: 0, y: 0, z: 0 });
