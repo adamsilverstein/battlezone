@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CRACK_GROUPS, DEFAULT_OPTIONS, EYE_HEIGHT_UNITS } from '../../src/data/constants';
+import { MAX_CATCHUP_TICKS } from '../../src/engine/loop';
 import { createAttractWorld } from '../../src/game/world';
 import type { Enemy, GameState, Shell, World } from '../../src/game/types';
 import type { Camera } from '../../src/render/camera';
@@ -19,10 +20,10 @@ import {
 import { createRecordingDisplay, type RecordedLine } from '../../src/render/vectorDisplay';
 
 /**
- * A state at `tick`.  `phaseTicks` counts up with the tick rather than sitting at
- * zero, because zero is the renderer's signal that a phase has just begun and
- * nothing may be blended across it - the respawn teleport is the case that matters
- * - and these fixtures are all mid-phase.
+ * A state at `tick`, mid-phase.  `phaseTicks` counts up with the tick rather than
+ * sitting at zero simply because that is what a running phase looks like; the
+ * renderer takes no notice of it beyond spotting a world that has stopped
+ * advancing.  The only thing that makes it snap is `cameraSnap`.
  */
 function stateAt(tick: number, x: number, z: number, heading: number): GameState {
   const world = createAttractWorld();
@@ -65,6 +66,7 @@ function expected(
       showAlert: false,
       blinkTick: tick,
       highScore,
+      blips: blips ?? createRadarBlips(),
     });
   } else {
     drawHorizon(d, cam, tick);
@@ -75,7 +77,7 @@ function expected(
       showAlert: !frozenHud,
       blinkTick: tick,
       highScore,
-      blips,
+      blips: blips ?? createRadarBlips(),
     });
     if (shown.phase === 'attractTitle') drawTitle(d, shown.phaseTicks);
     if (shown.phase === 'gameOver') drawGameOver(d, shown.message);
@@ -92,12 +94,23 @@ function expected(
 
 /**
  * The radar blip levels the renderer will be holding once it has drawn these
- * states: one fade-and-relight step per distinct world tick, which is what
- * `createRenderer` does with the worlds it is handed.
+ * states: one fade-and-relight step per *simulated* tick that has gone by, capped
+ * the way the loop caps its own catch-up, and forgotten outright when the camera
+ * is snapped.  This mirrors `createRenderer`, deliberately.
  */
 function blipsAfter(...states: GameState[]): RadarBlips {
   const blips = createRadarBlips();
-  for (const state of states) blips.advance(state.world);
+  let lastTick = Number.NaN;
+  let lastCameraSnap = Number.NaN;
+  for (const state of states) {
+    if ((state.cameraSnap ?? 0) !== lastCameraSnap) blips.reset();
+    lastCameraSnap = state.cameraSnap ?? 0;
+    const elapsed = Number.isNaN(lastTick) ? 1 : state.world.tick - lastTick;
+    for (let i = 0; i < Math.min(Math.max(elapsed, 0), MAX_CATCHUP_TICKS); i += 1) {
+      blips.advance(state.world);
+    }
+    lastTick = state.world.tick;
+  }
   return blips;
 }
 
@@ -275,24 +288,54 @@ describe('createRenderer', () => {
     );
   });
 
-  it('snaps rather than sliding when a phase has just begun', () => {
+  it('keeps blending across a phase change that moved no camera', () => {
+    // A phase beginning is not by itself a reason to cut: every phase that does
+    // put the player down somewhere new bumps `cameraSnap`, and one that does not
+    // - the step into the crack - is ordinary motion.
     const d = createRecordingDisplay();
     const renderer = createRenderer(d);
-    // A respawn teleports the player on a tick that looks perfectly consecutive,
-    // so only the fresh phase counter says not to blend across it.
     renderer.render(stateAt(6, 0, 0, 0), 0);
-    const respawned = stateAt(7, 9000, 9000, 2);
-    respawned.phase = 'playing';
-    respawned.phaseTicks = 0;
-    renderer.render(respawned, 0.5);
+    const next = stateAt(7, 800, 0, 0);
+    next.phase = 'playing';
+    next.phaseTicks = 0;
+    renderer.render(next, 0.5);
 
     expect(d.lines).toEqual(
-      expected(
-        { pos: { x: 9000, z: 9000 }, heading: 2, eyeHeight: EYE_HEIGHT_UNITS },
-        7,
-        respawned,
-      ),
+      expected({ pos: { x: 400, z: 0 }, heading: 0, eyeHeight: EYE_HEIGHT_UNITS }, 7, next),
     );
+  });
+
+  it('fades the radar blip once per simulated tick, not once per frame', () => {
+    // An enemy dead ahead with the sweep on its bearing: the blip lights, and
+    // every tick that goes by afterwards takes a step off it.  A frame that
+    // arrives after the loop caught up two ticks has to fade both of them.
+    const at = (tick: number, radarAngle: number): GameState => {
+      const state = stateAt(tick, 0, 0, 0);
+      state.phase = 'playing';
+      state.world.enemies = [enemyAt(0, 8000, 0)];
+      state.world.radarAngle = radarAngle;
+      return state;
+    };
+    // The enemy is dead ahead, so the sweep lights the blip at angle 0 and has
+    // left it behind by a quarter turn.
+    const lit = 0;
+    const gone = Math.PI / 2;
+    const blip = (lines: readonly RecordedLine[]): RecordedLine | undefined =>
+      lines.find((l) => l.x0 === l.x1 && l.y0 === l.y1);
+
+    const stepped = createRecordingDisplay();
+    const byTick = createRenderer(stepped);
+    byTick.render(at(0, lit), 0);
+    byTick.render(at(1, gone), 0);
+    byTick.render(at(2, gone), 0);
+
+    const jumped = createRecordingDisplay();
+    const caughtUp = createRenderer(jumped);
+    caughtUp.render(at(0, lit), 0);
+    caughtUp.render(at(2, gone), 0);
+
+    expect(blip(stepped.lines)).toBeDefined();
+    expect(blip(jumped.lines)).toEqual(blip(stepped.lines));
   });
 
   it('snaps rather than interpolating when the loop skips ticks', () => {
@@ -338,7 +381,7 @@ describe('createRenderer', () => {
     state.highScores = [{ initials: 'ABC', score: 25000 }];
     const d = createRecordingDisplay();
     createRenderer(d).render(state, 0);
-    expect(d.lines).toEqual(expected(CAM_AT_ORIGIN, 4, state));
+    expect(d.lines).toEqual(expected(CAM_AT_ORIGIN, 4, state, undefined, blipsAfter(state)));
     // The order matters: the HUD is drawn last so it sits over the view.
     const bare = stateAt(4, 0, 0, 0);
     bare.phase = 'playing';

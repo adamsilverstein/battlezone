@@ -29,7 +29,6 @@ import {
   RADAR_BLIP_WINDOW,
   RADAR_CENTRE,
   RADAR_RADIUS,
-  RADAR_SWEEP_PER_TICK,
   RETICLE_BLINK_TICKS,
   SCORE_TRAILING_ZEROS,
   TANGLE_UNIT_RADIANS,
@@ -90,17 +89,6 @@ function unitsPastBearing(sweep: number, bearing: number): number {
 }
 
 /**
- * The blip's brightness derived from the angles alone, for a caller with nowhere
- * to keep it: full while the sweep is inside `RADAR_BLIP_WINDOW` of the bearing,
- * and one `RADAR_BLIP_DECAY` step dimmer for every tick it has travelled since.
- */
-function blipLevel(sweep: number, bearing: number): number {
-  const unitsPast = unitsPastBearing(sweep, bearing);
-  if (unitsPast <= RADAR_BLIP_WINDOW) return RADAR_BLIP_BRIGHTNESS;
-  return RADAR_BLIP_BRIGHTNESS - RADAR_BLIP_DECAY * Math.floor(unitsPast / RADAR_SWEEP_PER_TICK);
-}
-
-/**
  * The blip levels, one per unit, held from tick to tick.
  *
  * `BLIP` is a byte in RAM: `DRADAR` loads it with `$F0` when the sweep passes
@@ -108,12 +96,13 @@ function blipLevel(sweep: number, bearing: number): number {
  * it every tick afterwards, so the dot flashes and fades over the 30 ticks the
  * sweep needs to come round again (BZONE.MAC.txt:7775-7803, 8017-8025).
  *
- * Deriving that level from the angles instead, as `blipLevel` does, is only the
- * same thing while the player stands still: the bearing is measured from the
- * player's own heading, so turning slides it under the sweep and the blip
- * flickers brighter and dimmer as the tank pivots.  Holding the level is both
- * what the ROM does and what stops the flicker.  It is renderer state, not world
- * state - nothing in the simulation depends on it.
+ * Reading that level back out of the sweep and bearing angles is only the same
+ * thing while the player stands still: the bearing is measured from the player's
+ * own heading, so turning slides it under the sweep and the blip flickers
+ * brighter and dimmer as the tank pivots.  Holding the level is both what the ROM
+ * does and what stops the flicker.  It is renderer state, not world state -
+ * nothing in the simulation depends on it - so the caller owns it and advances it
+ * once per simulated tick.
  */
 export interface RadarBlips {
   /** One game tick: fade every blip, and relight the one the sweep just passed. */
@@ -151,7 +140,7 @@ export function createRadarBlips(): RadarBlips {
  * the screen - and the sweep and the blip bearing are measured clockwise from
  * there, which is why the player's heading is subtracted rather than added.
  */
-export function drawRadar(d: VectorDisplay, world: World, blips?: RadarBlips): void {
+export function drawRadar(d: VectorDisplay, world: World, blips: RadarBlips): void {
   const [cx, cy] = RADAR_CENTRE;
 
   RADAR.polylines.forEach((stroke, i) => d.polyline(stroke, RADAR_STROKE_INTENSITY[i]));
@@ -172,9 +161,7 @@ export function drawRadar(d: VectorDisplay, world: World, blips?: RadarBlips): v
   // Out of radar range is the same test as the range alert: TDIST >= 0x80.
   if (range >= ENEMY_IN_RANGE_UNITS) return;
   const bearing = wrapAngle(bearingTo(world.player.pos, target.pos) - world.player.heading);
-  // Held levels when the caller keeps them, which is what the renderer does;
-  // derived from the angles otherwise.
-  const level = blips ? blips.levelFor(target.id) : blipLevel(world.radarAngle, bearing);
+  const level = blips.levelFor(target.id);
   if (level <= 0) return;
   // The ROM emits the dot twice to brighten it; one lit point is enough here
   // because the display rounds its line caps.
@@ -247,8 +234,8 @@ function reticleVisible(world: World, blinkTick: number): boolean {
  * All three default to true.  `blinkTick` is the frame counter the message flash
  * and the reticle blink are phased from, `highScore` is the number the HIGH
  * SCORE line shows - the best of the table and the score in hand, which only the
- * game state knows - and `blips` is the caller's held radar levels, without which
- * they are derived from the sweep angle instead.
+ * game state knows - and `blips` is the held radar levels, which the caller owns
+ * because they outlive a frame: see `RadarBlips`.
  */
 export function drawHud(
   d: VectorDisplay,
@@ -257,9 +244,9 @@ export function drawHud(
     showReticle: boolean;
     blinkTick: number;
     highScore: number;
+    blips: RadarBlips;
     showRadar?: boolean;
     showAlert?: boolean;
-    blips?: RadarBlips;
   },
 ): void {
   if (opts.showRadar ?? true) drawRadar(d, world, opts.blips);

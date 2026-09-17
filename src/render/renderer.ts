@@ -28,6 +28,7 @@
  */
 
 import { CRACK_GROUPS, DEFAULT_OPTIONS, EYE_HEIGHT_UNITS } from '../data/constants';
+import { MAX_CATCHUP_TICKS } from '../engine/loop';
 import type { Debris, Enemy, GameState, Shell, World } from '../game/types';
 import { clamp, lerp, wrapAngle } from '../engine/math';
 import type { Camera } from './camera';
@@ -106,23 +107,14 @@ function crackProgress(phaseTicks: number): number {
   return clamp(phaseTicks / CRACK_GROUPS, 0, 1);
 }
 
-/**
- * The phases a tank is being driven through, which the camera may blend across.
- * The player is still in their tank while the crack spreads, and the tick they
- * were hit on is a tick they were moving on.  Everything else - the attract
- * table, the initials editor, GAME OVER - either replaces the world or holds it
- * still, so a frame after one of those has nothing truthful to blend from.
- */
-const PLAY_PHASES: ReadonlySet<GameState['phase']> = new Set(['playing', 'playerDead']);
-
 export function createRenderer(d: VectorDisplay): {
   render(state: GameState, alpha: number): void;
 } {
   // NaN so the first render always takes the "new tick" path and seeds both ends,
   // which is why this placeholder is never actually drawn from.
   let lastTick = Number.NaN;
-  let lastPhase: GameState['phase'] | null = null;
   let lastPhaseTicks = Number.NaN;
+  // NaN again, so the first frame never matches and always snaps.
   let lastCameraSnap = Number.NaN;
   // The radar blip levels are the one piece of display state the world does not
   // keep: the ROM holds them in `BLIP` and fades them a step a tick.
@@ -137,32 +129,30 @@ export function createRenderer(d: VectorDisplay): {
     render(state: GameState, alpha: number): void {
       const { world } = state;
       const { tick } = world;
-      // Things the blend cannot follow: anything the state machine put down by
-      // hand - a respawn, a demo reset, a fresh battlefield - which it reports by
-      // bumping `cameraSnap`, and arriving in a phase from one that was not
-      // playing, where the world behind the display has been standing still or
-      // has been swapped out from under the snapshot.  Neither can be inferred
-      // from the world alone: a respawn happens on a tick that looks perfectly
-      // consecutive, and on the very tick the crack ends the world does not
-      // advance at all, so waiting for the next tick to notice would leave the
-      // camera sweeping across the field one tick late.
-      //
-      // A phase change on its own is not enough, and this is why: the player is
-      // hit on a tick the world really did advance, and treating the step into
-      // `playerDead` as a teleport threw that last tick of motion away, so the
-      // view jerked as the crack came up.  Between the phases that are actually
-      // being played, the camera keeps blending.
-      const snapRequested =
-        lastPhase === null ||
-        (state.phase !== lastPhase && !PLAY_PHASES.has(lastPhase)) ||
-        (state.cameraSnap ?? 0) !== lastCameraSnap;
-      lastPhase = state.phase;
+      // The one thing the blend cannot follow is a camera the state machine put
+      // down by hand - a respawn, a demo reset, a fresh battlefield, a new game -
+      // and it cannot be inferred from the world: a respawn happens on a tick
+      // that looks perfectly consecutive, and on the very tick the crack ends the
+      // world does not advance at all, so waiting for the next tick to notice
+      // would leave the camera sweeping across the field one tick late.  So
+      // `game.ts` reports every one of them by bumping `cameraSnap`, and that
+      // counter is the whole signal.  A phase change is not one: the player is
+      // hit on a tick they were really driving through, and treating the step
+      // into `playerDead` as a teleport threw that last tick of motion away.
+      const snapRequested = (state.cameraSnap ?? 0) !== lastCameraSnap;
       lastCameraSnap = state.cameraSnap ?? 0;
 
       if (snapRequested) blips.reset();
-      // Blips fade per game tick, not per frame, and off the real world rather
-      // than the interpolated view.
-      if (tick !== lastTick) blips.advance(world);
+      // The blips fade once per *simulated* tick, not once per frame, and off the
+      // real world rather than the interpolated view.  A frame that arrives after
+      // the loop caught several ticks up has to fade them all, or the dot lingers
+      // brighter than the ROM's would; the loop never runs more than
+      // `MAX_CATCHUP_TICKS` at once, and a world that went backwards has just been
+      // reset above.
+      const elapsed = Number.isNaN(lastTick) ? 1 : tick - lastTick;
+      for (let i = 0; i < Math.min(Math.max(elapsed, 0), MAX_CATCHUP_TICKS); i += 1) {
+        blips.advance(world);
+      }
 
       if (tick !== lastTick || snapRequested) {
         const snapshot = snapshotOf(world);
@@ -244,6 +234,7 @@ export function createRenderer(d: VectorDisplay): {
           showAlert: false,
           blinkTick: tick,
           highScore,
+          blips,
         });
       } else {
         drawHorizon(d, cam, tick);
