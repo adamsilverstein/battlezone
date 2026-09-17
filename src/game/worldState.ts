@@ -49,6 +49,8 @@ export interface EnemyBrain {
   blocked: boolean;
   /** The saucer's per-tick drift, re-randomised when its course timer expires. */
   drift: Vec2;
+  /** `STIMER` while the saucer is flying: ticks until it picks a new course. */
+  courseTicks: number;
   /** Ticks the unit has spent outside radar range; a missile is replaced at last. */
   outOfRangeTicks: number;
   /** The player shell this unit has already reacted to, so it dodges each shot once. */
@@ -89,6 +91,7 @@ export function enemyBrain(enemy: Enemy): EnemyBrain {
     retreatTurn: 1,
     blocked: false,
     drift: { x: 0, z: 0 },
+    courseTicks: 0,
     outOfRangeTicks: 0,
     dodgedShell: 0,
   };
