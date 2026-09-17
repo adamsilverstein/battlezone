@@ -5,23 +5,25 @@
  * THE PHASES AND THEIR LENGTHS
  * ----------------------------
  * The original has two attract displays and toggles between them every `TIMOUT`
- * step, 256 ticks (`ATTRACT_PHASE_TICKS`, 16.384 s): demo play with the flying
- * logo over it, and the high score table (BZONE.MAC.txt:829-879).  `GamePhase`
- * splits the demo segment in two, so the logo gets a phase of its own:
+ * step, 256 ticks (`ATTRACT_PHASE_TICKS`, 16.384 s): the high score table, and
+ * demo play with the flying logo over it (BZONE.MAC.txt:829-879).  `GamePhase`
+ * splits that demo segment in two so the logo gets a phase of its own, and the
+ * cycle runs in the ROM's own order - the list, then the logo over the demo, then
+ * the demo carrying on once the logo has flown:
  *
  * | phase              | ticks                                | what it shows                  |
  * | ------------------ | ------------------------------------ | ------------------------------ |
- * | `attractTitle`     | `LOGO_TICKS` = 192                   | the demo, with the logo flying |
  * | `attractHighScores`| `ATTRACT_PHASE_TICKS` = 256          | the table, world held still    |
+ * | `attractTitle`     | `LOGO_TICKS` = 192                   | the demo, with the logo flying |
  * | `attractDemo`      | 256 - 192 = 64                       | the demo, logo gone            |
  * | `playerDead`       | `DEATH_SEQUENCE_TICKS` = 16          | the crack, then respawn        |
  * | `gameOver`         | `GAME_OVER_TICKS` (an estimate)      | GAME OVER over the field       |
  * | `highScoreEntry`   | up to `HIGH_SCORE_ENTRY_TICKS`       | the initials editor            |
  *
  * The two demo phases together are exactly the ROM's 256-tick demo segment, and
- * the logo flies its own 192-tick course inside it.  DEVIATION: the ROM reaches the
- * logo *after* the table, where the order here is title, table, demo - the brief's
- * cycle - so the logo arrives 64 ticks earlier in the segment than it did.
+ * the logo flies its own 192-tick course at the start of it - "after the high
+ * score list, the logo is shown" (docs/reference/original-game.md section 4).  A
+ * cold boot therefore opens on the table, as the ROM does.
  *
  * DEATH
  * -----
@@ -58,6 +60,7 @@ import { NEUTRAL_INPUT, type InputState } from '../input/types';
 import { attractInput } from './attract';
 import { circleHitsObstacle, octagonalDistance, wrapCoordinate } from './collision';
 import { insertHighScore, newInitialsEntry, qualifies, updateInitialsEntry } from './highScores';
+import { playerShellInFlight } from './shells';
 // The simulation's entry point, which is also what installs the enemy systems.
 import { createAttractWorld, createWorld, resetPlayer, updateWorld } from './index';
 import type {
@@ -102,11 +105,11 @@ const RESPAWN_CLEARANCE = TANK_TANK_RADIUS * 2;
 /** The phases nobody is playing. */
 type AttractPhase = 'attractTitle' | 'attractHighScores' | 'attractDemo';
 
-/** The attract phases, in the order they cycle. */
+/** The attract phases, in the order they cycle: table, logo over the demo, demo. */
 const ATTRACT_CYCLE: Record<AttractPhase, GamePhase> = {
-  attractTitle: 'attractHighScores',
-  attractHighScores: 'attractDemo',
-  attractDemo: 'attractTitle',
+  attractHighScores: 'attractTitle',
+  attractTitle: 'attractDemo',
+  attractDemo: 'attractHighScores',
 };
 
 /** How long each attract phase lasts. */
@@ -126,11 +129,6 @@ function isDemoPhase(phase: GamePhase): boolean {
   return phase === 'attractTitle' || phase === 'attractDemo';
 }
 
-/** The player's shell, if one is still on its way. */
-function playerShellFlying(world: World): boolean {
-  return world.shells.some((shell) => shell.owner === 'player');
-}
-
 /** The live missile, whose distance scales the buzz. */
 function liveMissile(world: World): Enemy | null {
   return world.enemies.find((e) => e.kind === 'missile' && e.alive) ?? null;
@@ -146,7 +144,8 @@ export function createGame(opts: { rng: Rng; highScores: HighScoreEntry[] }): Ga
   const { rng } = opts;
 
   const state: GameState = {
-    phase: 'attractTitle',
+    // The ROM comes up on the high score list, and the logo follows it.
+    phase: 'attractHighScores',
     phaseTicks: 0,
     world: createAttractWorld(),
     highScores: opts.highScores,
@@ -236,9 +235,9 @@ export function createGame(opts: { rng: Rng; highScores: HighScoreEntry[] }): Ga
   function runPlayerDead(): GameEvent[] {
     const { world } = state;
     // Only the shell keeps the world moving; everything else is held still.
-    const events = playerShellFlying(world) ? updateWorld(world, NEUTRAL_INPUT, rng) : [];
+    const events = playerShellInFlight(world) ? updateWorld(world, NEUTRAL_INPUT, rng) : [];
 
-    if (!afterTicks(DEATH_SEQUENCE_TICKS) || playerShellFlying(world)) return events;
+    if (!afterTicks(DEATH_SEQUENCE_TICKS) || playerShellInFlight(world)) return events;
     // A bonus tank earned by that last shell is a life like any other, which is
     // how the ROM lets a kill from beyond the grave call off the game over.
     if (world.lives > 0) {
@@ -338,14 +337,21 @@ export function createGame(opts: { rng: Rng; highScores: HighScoreEntry[] }): Ga
     audioSnapshot(): AudioSnapshot {
       const { world } = state;
       const missile = liveMissile(world);
+      // Every continuous voice belongs to a game in progress.  The world outlives
+      // the game - it is still there, frozen, under GAME OVER and behind the
+      // initials editor - so a snapshot taken straight off it would leave the
+      // saucer humming and the missile buzzing after the player is done.  One-shots
+      // are unaffected, which is what lets the high-score fanfare play.
+      const inPlay = state.phase === 'playing';
       return {
-        engineRunning: state.phase === 'playing',
+        engineRunning: inPlay,
         // The ROM revs for any non-centred stick, a pivot included.
-        moving: world.player.moving || world.player.turning,
-        enemyInRange: world.enemyInRange,
-        missileActive: missile !== null,
-        saucerActive: world.enemies.some((e) => e.kind === 'saucer' && e.alive),
-        missileDistance: missile ? octagonalDistance(world.player.pos, missile.pos) : null,
+        moving: inPlay && (world.player.moving || world.player.turning),
+        enemyInRange: inPlay && world.enemyInRange,
+        missileActive: inPlay && missile !== null,
+        saucerActive: inPlay && world.enemies.some((e) => e.kind === 'saucer' && e.alive),
+        missileDistance:
+          inPlay && missile ? octagonalDistance(world.player.pos, missile.pos) : null,
       };
     },
   };

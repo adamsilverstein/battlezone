@@ -80,47 +80,50 @@ function play(seed = 7): Game {
 }
 
 describe('attract mode', () => {
-  it('boots into the title with the battlefield up', () => {
+  it('boots into the high score list, as the ROM does', () => {
     const game = newGame();
 
-    expect(game.state.phase).toBe('attractTitle');
+    expect(game.state.phase).toBe('attractHighScores');
     expect(game.state.phaseTicks).toBe(0);
     expect(game.state.world.obstacles.length).toBeGreaterThan(0);
   });
 
   it('plays itself: the demo world ticks on and an enemy turns up', () => {
     const game = newGame();
+    run(game, ATTRACT_HIGH_SCORE_TICKS);
+    expect(game.state.phase).toBe('attractTitle');
     const events = run(game, 40);
 
     expect(game.state.world.tick).toBe(40);
     expect(events.some((e) => e.type === 'enemySpawned')).toBe(true);
   });
 
-  it('cycles title, high scores and demo on the ROM segment lengths', () => {
+  it('alternates the list and demo play, with the logo after the list', () => {
     const game = newGame();
 
+    // The ROM's two 256-tick segments: the table, then demo play with the logo
+    // flying over the first 192 ticks of it.
     expect(runUntilPhaseChanges(game)).toEqual({
-      phase: 'attractHighScores',
-      ticks: ATTRACT_TITLE_TICKS,
-    });
-    expect(runUntilPhaseChanges(game)).toEqual({
-      phase: 'attractDemo',
+      phase: 'attractTitle',
       ticks: ATTRACT_HIGH_SCORE_TICKS,
     });
     expect(runUntilPhaseChanges(game)).toEqual({
-      phase: 'attractTitle',
+      phase: 'attractDemo',
+      ticks: ATTRACT_TITLE_TICKS,
+    });
+    expect(runUntilPhaseChanges(game)).toEqual({
+      phase: 'attractHighScores',
       ticks: ATTRACT_DEMO_TICKS,
     });
+    expect(ATTRACT_TITLE_TICKS + ATTRACT_DEMO_TICKS).toBe(ATTRACT_HIGH_SCORE_TICKS);
   });
 
   it('holds the world still while the high score table is up', () => {
     const game = newGame();
-    run(game, ATTRACT_TITLE_TICKS);
-    expect(game.state.phase).toBe('attractHighScores');
-
     const frozen = game.state.world.tick;
     run(game, 10);
 
+    expect(game.state.phase).toBe('attractHighScores');
     expect(game.state.world.tick).toBe(frozen);
   });
 
@@ -137,14 +140,15 @@ describe('attract mode', () => {
 
   it('never lets the demo pilot start a game by itself', () => {
     const game = newGame();
-    run(game, ATTRACT_TITLE_TICKS + ATTRACT_HIGH_SCORE_TICKS + ATTRACT_DEMO_TICKS);
+    run(game, ATTRACT_TITLE_TICKS + ATTRACT_HIGH_SCORE_TICKS + ATTRACT_DEMO_TICKS + 1);
 
     expect(isAttractPhase(game.state.phase)).toBe(true);
   });
 
   it('puts the demo player back on the field if the demo gets shot', () => {
     const game = newGame();
-    run(game, 20);
+    run(game, ATTRACT_HIGH_SCORE_TICKS + 20);
+    expect(game.state.phase).toBe('attractTitle');
     killPlayer(game);
 
     expect(game.state.phase).toBe('attractTitle');
@@ -387,12 +391,12 @@ describe('game over', () => {
     note();
 
     expect(seen).toEqual([
-      'attractTitle',
+      'attractHighScores',
       'playing',
       'gameOver',
       'highScoreEntry',
       'attractHighScores',
-      'attractDemo',
+      'attractTitle',
     ]);
     expect(game.state.highScores[0]).toEqual({ initials: 'AAA', score: 60000 });
   });
@@ -498,6 +502,66 @@ describe('audioSnapshot', () => {
 
     expect(game.audioSnapshot().missileActive).toBe(true);
     expect(game.audioSnapshot().missileDistance).toBeGreaterThan(0);
+  });
+
+  it('stops the continuous voices the moment the game does', () => {
+    const game = play();
+    game.state.world.enemies = [
+      {
+        id: 3,
+        kind: 'saucer',
+        pos: { x: 500, z: 500 },
+        heading: 0,
+        y: 900,
+        alive: true,
+        state: 'hover',
+        timer: 0,
+      },
+      {
+        id: 4,
+        kind: 'missile',
+        pos: { x: 0, z: 2000 },
+        heading: Math.PI,
+        y: 400,
+        alive: true,
+        state: 'swoop',
+        timer: 0,
+      },
+    ];
+    game.state.world.enemyInRange = true;
+    expect(game.audioSnapshot().saucerActive).toBe(true);
+    expect(game.audioSnapshot().missileActive).toBe(true);
+
+    // The world outlives the game, frozen, under the crack and GAME OVER and
+    // behind the initials editor. None of it may still be making a noise.
+    killPlayer(game);
+    for (const phase of ['playerDead', 'gameOver', 'highScoreEntry'] as const) {
+      while (game.state.phase !== phase) {
+        game.state.world.score = 50000;
+        if (game.state.phase === 'playing') killPlayer(game);
+        else game.update(NEUTRAL_INPUT);
+      }
+      const snapshot = game.audioSnapshot();
+      expect(snapshot.saucerActive, phase).toBe(false);
+      expect(snapshot.missileActive, phase).toBe(false);
+      expect(snapshot.missileDistance, phase).toBeNull();
+      expect(snapshot.enemyInRange, phase).toBe(false);
+      expect(snapshot.engineRunning, phase).toBe(false);
+      expect(snapshot.moving, phase).toBe(false);
+    }
+  });
+
+  it('still reports the fanfare as an event on the way into the entry screen', () => {
+    const game = play();
+    game.state.world.score = 50000;
+    const events: GameEvent[] = [];
+    while (game.state.phase !== 'highScoreEntry') {
+      events.push(
+        ...(game.state.phase === 'playing' ? killPlayer(game) : game.update(NEUTRAL_INPUT)),
+      );
+    }
+
+    expect(events).toContainEqual({ type: 'fanfare' });
   });
 
   it('reports the saucer and the range alert from the world', () => {
