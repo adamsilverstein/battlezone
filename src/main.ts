@@ -135,12 +135,30 @@ const loop = createLoop({
 
 loop.start();
 
-// A window onto the phase for the smoke test, in development and test builds only.
+// A read-only window onto the state machine for the browser smoke test and for
+// playing a build through by hand, in development and test builds only.  Nothing
+// here can change the game: the ROM had no such door and neither does the
+// production bundle.
 if (import.meta.env.DEV || import.meta.env.MODE === 'test') {
   Object.defineProperty(window, '__battlezone', {
     value: {
       get phase() {
         return game.state.phase;
+      },
+      get score() {
+        return game.state.world.score;
+      },
+      get lives() {
+        return game.state.world.lives;
+      },
+      get tick() {
+        return game.state.world.tick;
+      },
+      get enemyInRange() {
+        return game.state.world.enemyInRange;
+      },
+      get targetInSights() {
+        return game.state.world.targetInSights;
       },
     },
   });
