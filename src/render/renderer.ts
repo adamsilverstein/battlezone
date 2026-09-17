@@ -150,11 +150,13 @@ export function createRenderer(d: VectorDisplay): {
       drawHorizon(d, cam, tick);
       drawWorldObjects(d, cam, view);
       drawHud(d, view, {
-        // The range alert belongs to a game in progress; attract mode and the
-        // death sequence leave the rest of the strip up without it.
-        showEnemyInRange: state.phase === 'playing',
+        // The ROM draws no gunsight behind the attract logo; everything else
+        // keeps it (BZONE.MAC.txt:961-965).
+        showReticle: state.phase !== 'attractTitle',
         blinkTick: tick,
-        highScore: Math.max(state.highScores[0]?.score ?? 0, world.score),
+        // The table is not guaranteed to be sorted, so take the best of it, and
+        // of the score in hand once the player has passed it.
+        highScore: Math.max(...state.highScores.map((entry) => entry.score), world.score),
       });
       if (state.phase === 'playerDead') drawCrack(d, crackProgress(state.phaseTicks));
       d.endFrame();

@@ -1,15 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import {
-  ENEMY_DISH_STEP,
-  EYE_HEIGHT_UNITS,
-  HEADING_UNITS_PER_TURN,
-} from '../../src/data/constants';
-import { MODELS, TREAD_FRAMES } from '../../src/data/models';
-import { TAU } from '../../src/engine/math';
+import { ENEMY_DISH_STEP, EYE_HEIGHT_UNITS, TANGLE_UNIT_RADIANS } from '../../src/data/constants';
+import { DOT_MODEL_NAMES, MODELS, TREAD_FRAMES } from '../../src/data/models';
 import type { Debris, Enemy, Obstacle, Shell, World } from '../../src/game/types';
 import { createAttractWorld } from '../../src/game/world';
-import type { Camera } from '../../src/render/camera';
-import { drawModel } from '../../src/render/camera';
+import { drawModel, type Camera } from '../../src/render/camera';
 import { VIEW_CLIP } from '../../src/render/clip';
 import { drawWorldObjects } from '../../src/render/objects';
 import { createRecordingDisplay, type RecordedLine } from '../../src/render/vectorDisplay';
@@ -49,11 +43,11 @@ function modelLines(
   model: string,
   pos: { x: number; y: number; z: number },
   yaw: number,
-  cam: Camera = CAM,
+  opts?: { depthCue?: boolean },
 ): RecordedLine[] {
   const d = createRecordingDisplay();
   d.beginFrame();
-  drawModel(d, cam, MODELS[model]!, pos, { x: 0, y: yaw, z: 0 });
+  drawModel(d, CAM, MODELS[model]!, pos, { x: 0, y: yaw, z: 0 }, 1, opts);
   d.endFrame();
   return d.lines;
 }
@@ -63,7 +57,7 @@ const keys = (lines: readonly RecordedLine[]): string[] =>
 
 /** The dish spins one ENEMY_DISH_STEP per tick; TANGLE counts anticlockwise. */
 const dishYaw = (heading: number, tick: number): number =>
-  heading - (tick * ENEMY_DISH_STEP * TAU) / HEADING_UNITS_PER_TURN;
+  heading - tick * ENEMY_DISH_STEP * TANGLE_UNIT_RADIANS;
 
 describe('drawWorldObjects', () => {
   it('draws the slow tank as hull, tread frame and radar dish', () => {
@@ -104,17 +98,44 @@ describe('drawWorldObjects', () => {
     );
   });
 
-  it('draws the missile and the saucer at their height', () => {
-    for (const kind of ['missile', 'saucer'] as const) {
-      const unit = enemy({ kind, y: 1200, heading: 0.25 });
-      const drawn = draw(worldWith({ enemies: [unit] }));
-      expect(keys(drawn)).toEqual(
-        keys(modelLines(kind, { x: unit.pos.x, y: 1200, z: unit.pos.z }, 0.25)),
-      );
-      // Height must actually move it: a grounded one lands somewhere else.
-      const grounded = draw(worldWith({ enemies: [enemy({ kind, y: 0, heading: 0.25 })] }));
-      expect(keys(drawn)).not.toEqual(keys(grounded));
-    }
+  it('draws the missile at its height with its exhaust spatter', () => {
+    const unit = enemy({ kind: 'missile', y: 1200, heading: 0.25 });
+    const tick = 3;
+    const pos = { x: unit.pos.x, y: 1200, z: unit.pos.z };
+    const drawn = draw(worldWith({ tick, enemies: [unit] }));
+    const spatter = DOT_MODEL_NAMES[tick % DOT_MODEL_NAMES.length]!;
+    expect(keys(drawn)).toEqual(
+      keys([...modelLines('missile', pos, 0.25), ...modelLines(spatter, pos, 0.25)]),
+    );
+    // The spatter is a dot cloud, so those vectors have no length.
+    const dots = drawn.filter((l) => l.x0 === l.x1 && l.y0 === l.y1);
+    expect(dots.length).toBeGreaterThan(0);
+    // Height must actually move it: a grounded one lands somewhere else.
+    const grounded = draw(worldWith({ tick, enemies: [enemy({ kind: 'missile', y: 0 })] }));
+    expect(keys(drawn)).not.toEqual(keys(grounded));
+  });
+
+  it('cycles the exhaust spatter with the tick', () => {
+    const unit = enemy({ kind: 'missile', y: 1200 });
+    const atTick = (tick: number) => keys(draw(worldWith({ tick, enemies: [unit] })));
+    expect(atTick(0)).not.toEqual(atTick(1));
+  });
+
+  it('draws the saucer at its hover height, without the distance fade', () => {
+    const unit = enemy({ kind: 'saucer', y: 1200, heading: 0.25 });
+    const near = draw(worldWith({ enemies: [unit] }));
+    expect(keys(near)).toEqual(
+      keys(
+        modelLines('saucer', { x: unit.pos.x, y: 1200, z: unit.pos.z }, 0.25, { depthCue: false }),
+      ),
+    );
+    const far = draw(
+      worldWith({ enemies: [enemy({ kind: 'saucer', y: 1200, pos: { x: 0, z: 14000 } })] }),
+    );
+    expect(new Set(far.map((l) => l.intensity))).toEqual(new Set([1]));
+    // A grounded saucer is drawn somewhere else, so the height is used.
+    const grounded = draw(worldWith({ enemies: [enemy({ kind: 'saucer', y: 0, heading: 0.25 })] }));
+    expect(keys(near)).not.toEqual(keys(grounded));
   });
 
   it('draws nothing for a dead enemy', () => {

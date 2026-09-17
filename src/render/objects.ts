@@ -10,8 +10,8 @@
  * * slow tank    - hull `$02`, the tread frame for whichever end faces the
  *                  viewer (`$04`-`$0b`), and the spinning radar dish `$0d`;
  * * super tank   - one body, `$21`, with no treads and no dish;
- * * missile      - the missile body at its altitude;
- * * saucer       - the saucer at its hover height;
+ * * missile      - the body at its altitude plus a spatter object (`$24`-`$2b`);
+ * * saucer       - the saucer at its hover height, without the depth cue;
  * * shell        - the projectile shape `$03`;
  * * debris       - the six chunks, yawing only (design spec 5.3).
  *
@@ -19,32 +19,32 @@
  * so `Debris.rot.x` and `.z` are deliberately ignored.
  */
 
-import { ENEMY_DISH_STEP, HEADING_UNITS_PER_TURN } from '../data/constants';
-import { MODELS, TREAD_FRAMES } from '../data/models';
+import { ENEMY_DISH_STEP, TANGLE_UNIT_RADIANS } from '../data/constants';
+import { DOT_MODEL_NAMES, MODELS, TREAD_FRAMES } from '../data/models';
 import type { WireModel } from '../data/types';
-import { TAU, angleTo, wrapAngle } from '../engine/math';
+import { angleTo, wrapAngle } from '../engine/math';
 import type { Debris, Enemy, Shell, Vec2, World } from '../game/types';
 import { drawModel, type Camera } from './camera';
 import type { VectorDisplay } from './vectorDisplay';
 
 /**
  * Battlefield objects are drawn at full intensity; `DRAW` then subtracts the
- * depth cue, which `drawModel` applies (BZONE.MAC.txt:3761-3775).  The saucer and
- * the attract logo bypassed the cue in the ROM and used a fixed intensity; they
- * go through the same path here, which at most makes a distant saucer a shade
- * dimmer than the original's.
+ * depth cue, which `drawModel` applies (BZONE.MAC.txt:3761-3775).  The saucer is
+ * the exception the ROM makes, and it is made below.
  */
 const OBJECT_INTENSITY = 1;
-
-/** One ROM heading unit in radians. */
-const HEADING_UNIT_RADIANS = TAU / HEADING_UNITS_PER_TURN;
 
 /** Enemy kinds whose whole shape is one model. */
 const SINGLE_BODY_MODELS: Partial<Record<Enemy['kind'], string>> = {
   supertank: 'supertank',
-  missile: 'missile',
-  saucer: 'saucer',
 };
+
+/**
+ * The missile's exhaust: an expanding ring of dots drawn beside the body, one
+ * spatter object (`$24`-`$2b`) per frame.  Nothing in the world counts the plume,
+ * so the tick cycles it, as it does the treads.
+ */
+const EXHAUST_FRAMES = DOT_MODEL_NAMES;
 
 function model(name: string): WireModel {
   const found = MODELS[name];
@@ -60,6 +60,7 @@ function drawAt(
   pos: Vec2,
   y: number,
   heading: number,
+  opts?: { depthCue?: boolean },
 ): void {
   drawModel(
     d,
@@ -68,6 +69,7 @@ function drawAt(
     { x: pos.x, y, z: pos.z },
     { x: 0, y: heading, z: 0 },
     OBJECT_INTENSITY,
+    opts,
   );
 }
 
@@ -92,13 +94,24 @@ function treadFrame(cam: Camera, tank: Enemy, tick: number): string {
  * detail with no state in the world, so it is a function of the tick.
  */
 function dishHeading(tank: Enemy, tick: number): number {
-  return tank.heading - tick * ENEMY_DISH_STEP * HEADING_UNIT_RADIANS;
+  return tank.heading - tick * ENEMY_DISH_STEP * TANGLE_UNIT_RADIANS;
 }
 
 function drawEnemy(d: VectorDisplay, cam: Camera, unit: Enemy, tick: number): void {
   const single = SINGLE_BODY_MODELS[unit.kind];
   if (single) {
     drawAt(d, cam, single, unit.pos, unit.y, unit.heading);
+    return;
+  }
+  if (unit.kind === 'missile') {
+    drawAt(d, cam, 'missile', unit.pos, unit.y, unit.heading);
+    drawAt(d, cam, EXHAUST_FRAMES[tick % EXHAUST_FRAMES.length]!, unit.pos, unit.y, unit.heading);
+    return;
+  }
+  if (unit.kind === 'saucer') {
+    // SINT, not DQUE: the saucer keeps its brightness however far away it is
+    // (docs/reference/atari-source-notes.md, "Depth cueing and clipping").
+    drawAt(d, cam, 'saucer', unit.pos, unit.y, unit.heading, { depthCue: false });
     return;
   }
   drawAt(d, cam, 'tank', unit.pos, unit.y, unit.heading);

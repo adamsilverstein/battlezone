@@ -14,9 +14,9 @@
  */
 
 import {
-  HEADING_UNITS_PER_TURN,
   MESSAGE_FLASH_MASK,
   RADAR_SWEEP_PER_TICK,
+  TANGLE_UNIT_RADIANS,
   TICK_HZ,
 } from './data/constants';
 import { createLoop } from './engine/loop';
@@ -28,9 +28,6 @@ import { createCanvasDisplay } from './render/vectorDisplay';
 
 /** Seconds for the attract camera to complete one revolution. */
 const PAN_SECONDS = 45;
-
-/** One ROM heading unit in radians, for the radar sweep. */
-const SWEEP_UNIT = TAU / HEADING_UNITS_PER_TURN;
 
 /** PLACEHOLDER boot data: a scene to look at until the simulation lands. */
 function placeholderWorld(): World {
@@ -81,7 +78,9 @@ const loop = createLoop({
     state.phaseTicks = tick + 1;
     // A function of the tick rather than an accumulation, so the pan cannot drift.
     state.world.player.heading = wrapAngle((state.world.tick * TAU) / (PAN_SECONDS * TICK_HZ));
-    state.world.radarAngle = wrapAngle(state.world.tick * RADAR_SWEEP_PER_TICK * SWEEP_UNIT);
+    state.world.radarAngle = wrapAngle(
+      state.world.tick * RADAR_SWEEP_PER_TICK * TANGLE_UNIT_RADIANS,
+    );
     state.world.enemyInRange = true;
     state.world.targetInSights = (state.world.tick & MESSAGE_FLASH_MASK) === 0;
   },

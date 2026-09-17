@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { CRACK_GROUPS } from '../../src/data/constants';
+import {
+  CRACK_GROUPS,
+  FULL_WINDOW,
+  SCREEN_HALF_HEIGHT,
+  SCREEN_HALF_WIDTH,
+} from '../../src/data/constants';
 import { SCREEN_CRACK_FULL, SCREEN_CRACK_GROUPS } from '../../src/data/pictures';
 import { drawCrack } from '../../src/render/crack';
 import { createRecordingDisplay, type RecordedLine } from '../../src/render/vectorDisplay';
@@ -67,5 +72,28 @@ describe('drawCrack', () => {
     // Group 0 begins with CNTR, so its coordinates are already absolute.
     const first = draw(0)[0]!;
     expect([first.x0, first.y0]).toEqual([...SCREEN_CRACK_GROUPS[0]!.polylines[0]![0]!]);
+  });
+
+  it('stays inside the ROM window, overrunning the tube top and bottom', () => {
+    const lines = draw(1);
+    for (const l of lines) {
+      for (const x of [l.x0, l.x1]) {
+        expect(x).toBeGreaterThanOrEqual(FULL_WINDOW.left);
+        expect(x).toBeLessThanOrEqual(FULL_WINDOW.right);
+        expect(Math.abs(x)).toBeLessThanOrEqual(SCREEN_HALF_WIDTH);
+      }
+      for (const y of [l.y0, l.y1]) {
+        expect(y).toBeGreaterThanOrEqual(FULL_WINDOW.bottom);
+        expect(y).toBeLessThanOrEqual(FULL_WINDOW.top);
+      }
+    }
+    // Faithful: `BIGWND` opens the window to +/-508 in both axes, but the tube is
+    // 4:3 and only shows +/-384 vertically, so the ROM's own crack art runs off
+    // the top and the bottom of the picture. Nothing clips it here; the canvas
+    // display clips to the letterboxed screen when it draws.
+    const overrun = lines.filter(
+      (l) => Math.max(Math.abs(l.y0), Math.abs(l.y1)) > SCREEN_HALF_HEIGHT,
+    );
+    expect(overrun.length).toBeGreaterThan(0);
   });
 });

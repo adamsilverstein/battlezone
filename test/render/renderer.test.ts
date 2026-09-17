@@ -33,9 +33,9 @@ function expected(cam: Camera, tick: number, state?: GameState, view?: World): R
   drawHorizon(d, cam, tick);
   drawWorldObjects(d, cam, world);
   drawHud(d, world, {
-    showEnemyInRange: shown.phase === 'playing',
+    showReticle: shown.phase !== 'attractTitle',
     blinkTick: tick,
-    highScore: Math.max(shown.highScores[0]?.score ?? 0, world.score),
+    highScore: Math.max(...shown.highScores.map((e) => e.score), world.score),
   });
   if (shown.phase === 'playerDead') drawCrack(d, Math.min(shown.phaseTicks / CRACK_GROUPS, 1));
   d.endFrame();
@@ -159,6 +159,31 @@ describe('createRenderer', () => {
     createRenderer(d).render(state, 0);
     const beaten = { ...state, highScores: [{ initials: 'ABC', score: 40000 }] };
     expect(d.lines).toEqual(expected(CAM_AT_ORIGIN, 0, beaten));
+  });
+
+  it('takes the best of the whole table, whatever order it is in', () => {
+    const state = stateAt(0, 0, 0, 0);
+    state.highScores = [
+      { initials: 'ABC', score: 12000 },
+      { initials: 'DEF', score: 88000 },
+    ];
+    const d = createRecordingDisplay();
+    createRenderer(d).render(state, 0);
+    const best = { ...state, highScores: [{ initials: 'DEF', score: 88000 }] };
+    expect(d.lines).toEqual(expected(CAM_AT_ORIGIN, 0, best));
+  });
+
+  it('hides the reticle behind the attract logo only', () => {
+    const d = createRecordingDisplay();
+    const renderer = createRenderer(d);
+    const title = stateAt(0, 0, 0, 0);
+    title.phase = 'attractTitle';
+    renderer.render(title, 0);
+    const withoutReticle = d.lines.length;
+    const playing = stateAt(0, 0, 0, 0);
+    playing.phase = 'playing';
+    renderer.render(playing, 0);
+    expect(d.lines.length).toBeGreaterThan(withoutReticle);
   });
 
   it('interpolates enemies and shells between ticks by id', () => {

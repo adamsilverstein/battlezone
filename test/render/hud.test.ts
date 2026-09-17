@@ -89,7 +89,7 @@ const playerShell: Shell = {
   ticksLeft: 20,
 };
 
-const HUD_OPTS = { showEnemyInRange: true, blinkTick: 0, highScore: 0 };
+const HUD_OPTS = { showReticle: true, blinkTick: 0, highScore: 0 };
 
 describe('drawRadar', () => {
   it('draws the ROM tick marks and wedge, and no circle', () => {
@@ -237,12 +237,22 @@ describe('drawHud', () => {
     for (const line of expected) expect(off).not.toContain(line);
   });
 
-  it('leaves ENEMY IN RANGE off when no enemy is in range or the caller suppresses it', () => {
+  it('leaves ENEMY IN RANGE off when no enemy is in range', () => {
     const quiet = keys(hud(worldWith({ enemyInRange: false })));
-    const suppressed = keys(hud(worldWith({ enemyInRange: true }), { showEnemyInRange: false }));
     const shown = keys(hud(worldWith({ enemyInRange: true })));
     expect(shown.length).toBeGreaterThan(quiet.length);
-    expect(suppressed).toEqual(quiet);
+    for (const line of textKeys('ENEMY IN RANGE', -440, 360, 0.5)) {
+      expect(quiet).not.toContain(line);
+    }
+  });
+
+  it('leaves the reticle off when the caller hides it, as the logo does', () => {
+    const world = worldWith({});
+    const hidden = keys(hud(world, { showReticle: false }));
+    for (const line of pictureKeys(RETICLE_NORMAL)) expect(hidden).not.toContain(line);
+    // Only the gunsight goes: the strip is still up.
+    expect(hidden.length).toBeGreaterThan(0);
+    expect(keys(hud(world)).length).toBeGreaterThan(hidden.length);
   });
 
   it('switches to the locked reticle when the target is in the sights', () => {

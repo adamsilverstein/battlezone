@@ -17,8 +17,6 @@
  */
 
 import {
-  DISTANCE_MINOR_DENOMINATOR,
-  DISTANCE_MINOR_NUMERATOR,
   ENEMY_IN_RANGE_UNITS,
   HEADING_UNITS_PER_TURN,
   INTENSITY_MAX,
@@ -35,6 +33,7 @@ import {
   SCORE_BCD_BYTES,
   SCORE_TRAILING_ZEROS,
   SCORE_UNIT,
+  TANGLE_UNIT_RADIANS,
 } from '../data/constants';
 import {
   LIVES_TANK,
@@ -45,8 +44,9 @@ import {
   type MessageEntry,
 } from '../data/pictures';
 import type { Picture2D } from '../data/types';
-import { TAU, angleTo, wrapAngle } from '../engine/math';
-import type { Enemy, Vec2, World } from '../game/types';
+import { wrapAngle } from '../engine/math';
+import { bearingTo, octagonalDistance } from '../game/collision';
+import type { Enemy, World } from '../game/types';
 import { drawText } from './text';
 import type { VectorDisplay } from './vectorDisplay';
 
@@ -87,9 +87,6 @@ const HALF_SIZE_SCALE = 0.5;
 
 /** Four BCD digits are drawn into the gap in the score strings. */
 const SCORE_DIGITS = SCORE_BCD_BYTES * 2;
-
-/** One ROM heading unit in radians. */
-const HEADING_UNIT_RADIANS = TAU / HEADING_UNITS_PER_TURN;
 
 const MESSAGES_BY_LABEL = new Map(MESSAGES.map((m) => [m.label, m]));
 
@@ -147,20 +144,6 @@ function withScore(template: string, score: number): string {
   return template.slice(0, end - SCORE_DIGITS) + digits + template.slice(end);
 }
 
-/**
- * The MathBox's distance, which is what `TDIST` and the blip's radius are built
- * from: an octagonal approximation, `max + 3/8 * min`, not a true hypotenuse
- * (`DISTANCE_MINOR_*` in `data/constants.ts`).  The simulation measures range the
- * same way, so the blip fades out exactly where the range alert does.
- */
-function romDistance(a: Vec2, b: Vec2): number {
-  const dx = Math.abs(a.x - b.x);
-  const dz = Math.abs(a.z - b.z);
-  return (
-    Math.max(dx, dz) + (Math.min(dx, dz) * DISTANCE_MINOR_NUMERATOR) / DISTANCE_MINOR_DENOMINATOR
-  );
-}
-
 /** Screen position of a point `radius` from the radar centre, `bearing` clockwise from ahead. */
 function radarPoint(radius: number, bearing: number): readonly [number, number] {
   const [cx, cy] = RADAR_CENTRE;
@@ -182,7 +165,7 @@ function radarTarget(world: World): Enemy | undefined {
 function blipLevel(sweep: number, bearing: number): number {
   const past = sweep - bearing;
   const unitsPast =
-    (((past / HEADING_UNIT_RADIANS) % HEADING_UNITS_PER_TURN) + HEADING_UNITS_PER_TURN) %
+    (((past / TANGLE_UNIT_RADIANS) % HEADING_UNITS_PER_TURN) + HEADING_UNITS_PER_TURN) %
     HEADING_UNITS_PER_TURN;
   if (unitsPast <= RADAR_BLIP_WINDOW) return RADAR_BLIP_BRIGHTNESS;
   const ticksPast = Math.floor(unitsPast / RADAR_SWEEP_PER_TICK);
@@ -205,10 +188,13 @@ export function drawRadar(d: VectorDisplay, world: World): void {
 
   const target = radarTarget(world);
   if (!target) return;
-  const range = romDistance(world.player.pos, target.pos);
+  // Range and bearing come from `game/collision.ts`, the same octagonal distance
+  // and torus-aware bearing the simulation's range alert and reticle lock use, so
+  // the blip goes dark exactly where the alert does.
+  const range = octagonalDistance(world.player.pos, target.pos);
   // Out of radar range is the same test as the range alert: TDIST >= 0x80.
   if (range >= ENEMY_IN_RANGE_UNITS) return;
-  const bearing = wrapAngle(angleTo(world.player.pos, target.pos) - world.player.heading);
+  const bearing = wrapAngle(bearingTo(world.player.pos, target.pos) - world.player.heading);
   const level = blipLevel(world.radarAngle, bearing);
   if (level <= 0) return;
   // The ROM emits the dot twice to brighten it; one lit point is enough here
@@ -258,28 +244,31 @@ function reticleVisible(world: World, blinkTick: number): boolean {
 }
 
 /**
- * Draws the whole status strip and the reticle.
+ * Draws the whole status strip and, unless the caller says otherwise, the reticle.
  *
- * `opts.showEnemyInRange` lets the caller suppress the range alert (attract mode,
- * the death sequence) without touching the world; the message still needs
- * `world.enemyInRange`.  `opts.blinkTick` is the frame counter the message flash
- * and the reticle blink are phased from, and `opts.highScore` is the number to
- * show on the HIGH SCORE line - the table's best, or the current score once it
- * has passed it, which only the game state knows.
+ * `opts.showReticle` is false while the attract logo is on screen, which is the
+ * one case the ROM leaves the gunsight off (BZONE.MAC.txt:961-965).  The range
+ * alert needs no such switch: `world.enemyInRange` is only set while a game is
+ * being played.  `opts.blinkTick` is the frame counter the message flash and the
+ * reticle blink are phased from, and `opts.highScore` is the number the HIGH
+ * SCORE line shows - the best of the table and the current score, which only the
+ * game state knows.
  */
 export function drawHud(
   d: VectorDisplay,
   world: World,
-  opts: { showEnemyInRange: boolean; blinkTick: number; highScore: number },
+  opts: { showReticle: boolean; blinkTick: number; highScore: number },
 ): void {
   drawRadar(d, world);
   drawReserveTanks(d, world.lives);
   drawMessage(d, SCORE, withScore(SCORE.text, world.score));
   drawMessage(d, HIGH_SCORE, withScore(HIGH_SCORE.text, opts.highScore));
 
-  if (opts.showEnemyInRange && world.enemyInRange && flashOn(opts.blinkTick)) {
+  if (world.enemyInRange && flashOn(opts.blinkTick)) {
     drawMessage(d, ENEMY_IN_RANGE, ENEMY_IN_RANGE.text);
   }
 
-  if (reticleVisible(world, opts.blinkTick)) drawReticle(d, world.targetInSights);
+  if (opts.showReticle && reticleVisible(world, opts.blinkTick)) {
+    drawReticle(d, world.targetInSights);
+  }
 }
