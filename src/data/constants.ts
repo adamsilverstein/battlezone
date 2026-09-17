@@ -775,6 +775,19 @@ export const OBSTACLE_COUNT = OBSTACLES.length;
  *   * X' < 512 (too close)
  *   * X' * 2 >= 0x7B00, i.e. X' >= 15744 (too far)
  *   * |Y'| >= X' (outside the 45-degree half field of view)
+ *
+ * The doubling is the thing to keep hold of, because the draw distance reads as
+ * twice what it is without it.  ROTPNT shifts the MathBox's 16-bit answer left
+ * once - `ASL` on the low byte, `ROL` on the high - and every test after that is
+ * on the doubled value: `CMP I,7B` against its high byte rejects at
+ * `0x7B00 / 2 = 15744` of the raw depth, and the two `LSR`s before it reject
+ * under `0x400 / 2 = 512`.  `docs/reference/original-game.md:447` calls the far
+ * plane `$7AFF`, which is that comparison read in doubled units.
+ *
+ * So the radar sees further than the eye does: an enemy is on the radar from
+ * `ENEMY_IN_RANGE_UNITS` (32,768) and can spawn at `ENEMY_SPAWN_FAR_UNITS`
+ * (24,575), both beyond this plane.  That is the point of the radar - it tells
+ * you something is coming before there is anything to see.
  */
 export const NEAR_CLIP_UNITS = 512;
 export const FAR_CLIP_UNITS = 0x7b00 / 2;
