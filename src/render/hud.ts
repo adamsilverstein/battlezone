@@ -17,6 +17,8 @@
  */
 
 import {
+  DISTANCE_MINOR_DENOMINATOR,
+  DISTANCE_MINOR_NUMERATOR,
   ENEMY_IN_RANGE_UNITS,
   HEADING_UNITS_PER_TURN,
   INTENSITY_MAX,
@@ -43,8 +45,8 @@ import {
   type MessageEntry,
 } from '../data/pictures';
 import type { Picture2D } from '../data/types';
-import { TAU, angleTo, dist, wrapAngle } from '../engine/math';
-import type { Enemy, World } from '../game/types';
+import { TAU, angleTo, wrapAngle } from '../engine/math';
+import type { Enemy, Vec2, World } from '../game/types';
 import { drawText } from './text';
 import type { VectorDisplay } from './vectorDisplay';
 
@@ -145,6 +147,20 @@ function withScore(template: string, score: number): string {
   return template.slice(0, end - SCORE_DIGITS) + digits + template.slice(end);
 }
 
+/**
+ * The MathBox's distance, which is what `TDIST` and the blip's radius are built
+ * from: an octagonal approximation, `max + 3/8 * min`, not a true hypotenuse
+ * (`DISTANCE_MINOR_*` in `data/constants.ts`).  The simulation measures range the
+ * same way, so the blip fades out exactly where the range alert does.
+ */
+function romDistance(a: Vec2, b: Vec2): number {
+  const dx = Math.abs(a.x - b.x);
+  const dz = Math.abs(a.z - b.z);
+  return (
+    Math.max(dx, dz) + (Math.min(dx, dz) * DISTANCE_MINOR_NUMERATOR) / DISTANCE_MINOR_DENOMINATOR
+  );
+}
+
 /** Screen position of a point `radius` from the radar centre, `bearing` clockwise from ahead. */
 function radarPoint(radius: number, bearing: number): readonly [number, number] {
   const [cx, cy] = RADAR_CENTRE;
@@ -189,7 +205,7 @@ export function drawRadar(d: VectorDisplay, world: World): void {
 
   const target = radarTarget(world);
   if (!target) return;
-  const range = dist(world.player.pos, target.pos);
+  const range = romDistance(world.player.pos, target.pos);
   // Out of radar range is the same test as the range alert: TDIST >= 0x80.
   if (range >= ENEMY_IN_RANGE_UNITS) return;
   const bearing = wrapAngle(angleTo(world.player.pos, target.pos) - world.player.heading);

@@ -22,11 +22,9 @@
 import { ENEMY_DISH_STEP, HEADING_UNITS_PER_TURN } from '../data/constants';
 import { MODELS, TREAD_FRAMES } from '../data/models';
 import type { WireModel } from '../data/types';
-import { TAU, wrapAngle } from '../engine/math';
-import type { Debris, Enemy, Shell, World, Vec2 } from '../game/types';
-import { angleTo } from '../engine/math';
-import type { Camera } from './camera';
-import { drawModel } from './camera';
+import { TAU, angleTo, wrapAngle } from '../engine/math';
+import type { Debris, Enemy, Shell, Vec2, World } from '../game/types';
+import { drawModel, type Camera } from './camera';
 import type { VectorDisplay } from './vectorDisplay';
 
 /**
