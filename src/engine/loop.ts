@@ -41,9 +41,16 @@ export function createLoop(opts: {
   let lastTime = 0;
   /** Simulation time owed, in milliseconds. */
   let accumulator = 0;
+  /**
+   * Which chain of animation frames is the live one.  There is no way to cancel
+   * a request through the injectable `raf`, so a stop followed by a start would
+   * otherwise leave the outstanding callback running alongside the new one and
+   * double every render from then on.  Both stop and start bump this, and a
+   * callback that no longer matches simply returns.
+   */
+  let generation = 0;
 
-  const frame = (time: number): void => {
-    if (!running) return;
+  const step = (time: number): void => {
     accumulator += time - lastTime;
     lastTime = time;
 
@@ -57,20 +64,31 @@ export function createLoop(opts: {
     // Hit the cap: throw the rest away rather than carry a debt that grows.
     if (accumulator >= tickMs) accumulator = 0;
 
-    render(accumulator / tickMs);
-    raf(frame);
+    // A clock that jumps backwards must not report a negative fraction.
+    render(Math.max(0, accumulator / tickMs));
+  };
+
+  const schedule = (): void => {
+    const chain = generation;
+    raf((time) => {
+      if (!running || chain !== generation) return;
+      step(time);
+      schedule();
+    });
   };
 
   return {
     start(): void {
       if (running) return;
       running = true;
+      generation += 1;
       lastTime = now();
       accumulator = 0;
-      raf(frame);
+      schedule();
     },
     stop(): void {
       running = false;
+      generation += 1;
     },
     get running(): boolean {
       return running;

@@ -103,6 +103,26 @@ describe('createLoop', () => {
     expect(ticks).toEqual([0]);
   });
 
+  it('does not leave a second chain of frames running after a restart', () => {
+    const { loop, frame, alphas, pendingCount } = harness(10);
+    loop.start();
+    loop.stop();
+    loop.start();
+    // The request made before the stop is still outstanding alongside the new one.
+    expect(pendingCount()).toBe(2);
+    frame(10);
+    frame(10);
+    expect(alphas).toHaveLength(1);
+    expect(pendingCount()).toBe(1);
+  });
+
+  it('never reports a negative alpha when the clock jumps backwards', () => {
+    const { loop, frame, alphas } = harness(10);
+    loop.start();
+    frame(-50);
+    expect(alphas[0]).toBe(0);
+  });
+
   it('does not run up a backlog across a stop and restart', () => {
     const { loop, frame, ticks } = harness(10);
     loop.start();
