@@ -3,6 +3,7 @@ import {
   DEFAULT_OPTIONS,
   MOVE_STEP_UNITS,
   OBSTACLE_COUNT,
+  PLAYER_OBSTACLE_RADIUS,
   RADAR_SWEEP_PER_TICK,
   RADAR_SWEEP_TICKS_PER_REV,
 } from '../../src/data/constants';
@@ -128,6 +129,35 @@ describe('updateWorld', () => {
       { type: 'shellExpired' },
       { type: 'saucerAppeared' },
     ]);
+  });
+});
+
+describe('the real battlefield', () => {
+  it('stops the player short of the short box due north of the start', () => {
+    // PTBLX1/PTBLY1 entry 1 is a short box at ($0000, $4000), straight ahead.
+    const world = createWorld(createRng(1));
+    let blocked = 0;
+    for (let tick = 0; tick < 200 && blocked === 0; tick += 1) {
+      const events = updateWorld(world, sticks(1, 1), createRng(1));
+      if (events.some((e) => e.type === 'motionBlocked')) blocked = tick + 1;
+    }
+    expect(blocked).toBeGreaterThan(0);
+    expect(world.player.pos.z).toBeLessThan(0x4000);
+    expect(0x4000 - world.player.pos.z).toBeGreaterThanOrEqual(PLAYER_OBSTACLE_RADIUS);
+  });
+
+  it('lets a shell fly straight over that same short box', () => {
+    const world = createWorld(createRng(1));
+    const fire: InputState = { ...NEUTRAL_INPUT, fire: true };
+    let passed = false;
+    for (let tick = 0; tick < 40 && !passed; tick += 1) {
+      const events = updateWorld(world, tick === 0 ? fire : NEUTRAL_INPUT, createRng(1));
+      expect(events.some((e) => e.type === 'shellHitObstacle')).toBe(false);
+      const shell = world.shells[0];
+      expect(shell, `tick ${tick}`).toBeDefined();
+      passed = (shell?.pos.z ?? 0) > 0x4000 + PLAYER_OBSTACLE_RADIUS;
+    }
+    expect(passed).toBe(true);
   });
 });
 
