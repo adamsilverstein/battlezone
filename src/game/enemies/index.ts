@@ -15,9 +15,15 @@
  * `CheckProjColl` tests, in order, the opposing unit, then the saucer, then the
  * obstacles - and nothing else, which is the whole answer to whether a shell can
  * shoot down another shell: **it cannot**, there is no projectile-versus-projectile
- * test anywhere in the ROM (docs/reference/original-game.md section 3).  Obstacles
- * are `updateShells`' business and are owner-agnostic, so an enemy shell is stopped
- * by a pyramid exactly as the player's is.
+ * test anywhere in the ROM (docs/reference/original-game.md section 3).
+ *
+ * All three run on every sub-step, so `resolveShellHits` is registered with
+ * `shellTargets` and `updateShells` calls it four times a tick, before its own
+ * obstacle test.  That is not a detail: a tick of flight is 1024 units, wider than
+ * any hit radius, and a shell that passed a tank early in the tick and a pyramid
+ * late in it has to kill the tank.  Obstacles stay `updateShells`' business and are
+ * owner-agnostic, so an enemy shell is stopped by a pyramid exactly as the player's
+ * is.
  *
  * A missile at or above `TOP` cannot be hit at all (BZONE.MAC.txt:4527-4535), and a
  * saucer shot by an *enemy* shell scores the player nothing
@@ -31,12 +37,7 @@
  * field with `alive` false for its 32-tick flare-and-fade before it goes.
  */
 
-import {
-  MISSILE_HITTABLE_BELOW,
-  SAUCER_DEATH_TICKS,
-  SHELL_STEPS_PER_TICK,
-  SHELL_STEP_UNITS,
-} from '../../data/constants';
+import { MISSILE_HITTABLE_BELOW, SAUCER_DEATH_TICKS } from '../../data/constants';
 import { wrapAngle } from '../../engine/math';
 import type { InputState } from '../../input/types';
 import {
@@ -46,16 +47,17 @@ import {
   nearestEnemyUnit,
   octagonalDistance,
   shellHitsUnit,
-  wrapCoordinate,
 } from '../collision';
 import { spawnExplosion, updateDebris } from '../explosions';
+import { killPlayer } from '../player';
 import { addScore, pointsFor } from '../score';
+import { shellTargets } from '../shells';
 import { updateSpawner } from '../spawn';
-import type { Enemy, GameEvent, Rng, Shell, Vec2, World } from '../types';
+import type { Enemy, GameEvent, Rng, Shell, World } from '../types';
 import { RADAR_SWEEP_RADIANS, systems } from '../world';
-import { enemyBrain, internalState, shellFirer } from '../worldState';
+import { enemyBrain, shellFirer } from '../worldState';
 import { updateMissile } from './missile';
-import { updateSaucer } from './saucer';
+import { findSaucer, updateSaucer } from './saucer';
 import { updateSupertank } from './supertank';
 import { updateTank } from './tank';
 
@@ -68,55 +70,14 @@ export { spawnExplosion, updateDebris } from '../explosions';
 export { addScore } from '../score';
 export { isEnemyInRange, isTargetInSights } from '../collision';
 
-/** The saucer on the field, alive or fading, or null. */
-function findSaucer(world: World): Enemy | null {
-  return world.enemies.find((enemy) => enemy.kind === 'saucer') ?? null;
-}
-
 /** Whether the player's shell can touch this unit at all. */
 function hittable(enemy: Enemy): boolean {
   return enemy.kind !== 'missile' || enemy.y < MISSILE_HITTABLE_BELOW;
 }
 
-/**
- * The `SHELL_STEPS_PER_TICK` positions the shell passed through this tick, oldest
- * first, reconstructed by walking back along its heading.
- *
- * `MAIN` runs `COLCHK` and `QWIKCK` once per sub-step, not once per tick, and it has
- * to: a tick of flight is 1024 units and the widest tank hit radius is about 416, so
- * a shell tested only where it ended up would fly straight through anything it
- * passed on the way (BZONE.MAC.txt:1163-1173).  `updateShells` already sub-steps the
- * obstacle test; this gives the enemy test the same four chances.
- */
-function sweptPositions(shell: Shell): Vec2[] {
-  const stepX = SHELL_STEP_UNITS * Math.sin(shell.heading);
-  const stepZ = SHELL_STEP_UNITS * Math.cos(shell.heading);
-  const positions: Vec2[] = [];
-  for (let back = SHELL_STEPS_PER_TICK - 1; back >= 0; back -= 1) {
-    positions.push({
-      x: wrapCoordinate(shell.pos.x - back * stepX),
-      z: wrapCoordinate(shell.pos.z - back * stepZ),
-    });
-  }
-  return positions;
-}
-
-/** Whether the shell passed within a vehicle's hit radius at any sub-step. */
-function sweptHitsUnit(
-  shell: Shell,
-  target: { pos: Vec2; heading: number },
-  fat: boolean,
-): boolean {
-  return sweptPositions(shell).some((pos) =>
-    shellHitsUnit({ pos, heading: shell.heading }, target, fat),
-  );
-}
-
-/** Whether the shell passed within the saucer's flat hit radius at any sub-step. */
-function sweptHitsSaucer(shell: Shell, saucer: Enemy): boolean {
-  return sweptPositions(shell).some(
-    (pos) => octagonalDistance(pos, saucer.pos) < SAUCER_HIT_RADIUS,
-  );
+/** Whether the shell is inside the saucer's flat hit radius. */
+function hitsSaucer(shell: Shell, saucer: Enemy): boolean {
+  return octagonalDistance(shell.pos, saucer.pos) < SAUCER_HIT_RADIUS;
 }
 
 /** Takes a unit off the field and scatters it; the saucer fades instead. */
@@ -136,9 +97,9 @@ function playerShellHits(world: World, shell: Shell, rng: Rng): GameEvent[] | nu
   const unit = nearestEnemyUnit(world);
   const saucer = findSaucer(world);
   const target =
-    unit && hittable(unit) && sweptHitsUnit(shell, unit, unit.kind === 'missile')
+    unit && hittable(unit) && shellHitsUnit(shell, unit, unit.kind === 'missile')
       ? unit
-      : saucer?.alive && sweptHitsSaucer(shell, saucer)
+      : saucer?.alive && hitsSaucer(shell, saucer)
         ? saucer
         : null;
   if (!target) return null;
@@ -150,18 +111,13 @@ function playerShellHits(world: World, shell: Shell, rng: Rng): GameEvent[] | nu
 
 /** An enemy shell against the player, then the saucer it may hit by accident. */
 function enemyShellHits(world: World, shell: Shell, rng: Rng): GameEvent[] | null {
-  if (world.player.alive && sweptHitsUnit(shell, world.player, false)) {
-    const state = internalState(world);
-    world.player.alive = false;
-    state.playerDeaths += 1;
-    // The ROM sends a tank after a kill rather than pressing the advantage.
-    state.nextUnitOverride = 'tank';
+  if (world.player.alive && shellHitsUnit(shell, world.player, false)) {
     // The unit that fired may already be scrap, so the kind travels with the shell.
-    return [{ type: 'playerDestroyed', by: shellFirer(shell) ?? 'tank' }];
+    return killPlayer(world, shellFirer(shell) ?? 'tank');
   }
 
   const saucer = findSaucer(world);
-  if (saucer?.alive && sweptHitsSaucer(shell, saucer)) {
+  if (saucer?.alive && hitsSaucer(shell, saucer)) {
     destroy(world, saucer, rng);
     // The enemy's own kill: the player is not paid for it.
     return [{ type: 'enemyDestroyed', kind: 'saucer', points: 0 }];
@@ -170,37 +126,30 @@ function enemyShellHits(world: World, shell: Shell, rng: Rng): GameEvent[] | nul
 }
 
 /**
- * Resolves every shell in flight against the units, the saucer and the player, and
- * takes the ones that struck home off the field.
+ * `CheckProjColl` for one shell at one sub-step position: the opposing unit, then
+ * the saucer, then - back in `updateShells` - the obstacles.  Returns the events of
+ * whatever it struck, or null when it struck nothing and should fly on.
  *
- * The task brief's signature for this is `(world)`; it takes the `Rng` as well
- * because a hit scatters debris, and `spawnExplosion` needs a source of chance.
- * Nothing in `src/game` is allowed to reach for `Math.random`, so it has to be
- * passed in.
+ * The task brief's signature for this is `(world)`.  It takes the shell because the
+ * ROM tests each one on every sub-step rather than once a tick, and the `Rng`
+ * because a hit scatters debris and nothing in `src/game` may reach for
+ * `Math.random`.  It is registered with `shellTargets`, so `updateShells` is what
+ * actually calls it, and taking the spent shell off the field is that function's
+ * job.
  */
-export function resolveShellHits(world: World, rng: Rng): GameEvent[] {
-  const events: GameEvent[] = [];
-  const flying: Shell[] = [];
+export function resolveShellHits(world: World, shell: Shell, rng: Rng): GameEvent[] | null {
+  const hit =
+    shell.owner === 'player'
+      ? playerShellHits(world, shell, rng)
+      : enemyShellHits(world, shell, rng);
+  if (!hit) return null;
 
-  for (const shell of world.shells) {
-    const hit =
-      shell.owner === 'player'
-        ? playerShellHits(world, shell, rng)
-        : enemyShellHits(world, shell, rng);
-    if (hit) {
-      events.push(...hit);
-      // A landed shell clears `TIMOUT` (BZONE.MAC.txt:4589-4607), so the spawner's
-      // patience with a unit starts again whenever something actually happens - it
-      // is only a stalled, avoided enemy the ladder gives up on.
-      const survivor = nearestEnemyUnit(world);
-      if (survivor) enemyBrain(survivor).aliveTicks = 0;
-    } else {
-      flying.push(shell);
-    }
-  }
-
-  world.shells = flying;
-  return events;
+  // A landed shell clears `TIMOUT` (BZONE.MAC.txt:4589-4607), so the spawner's
+  // patience with a unit starts again whenever something actually happens - it is
+  // only a stalled, avoided enemy the ladder gives up on.
+  const survivor = nearestEnemyUnit(world);
+  if (survivor) enemyBrain(survivor).aliveTicks = 0;
+  return hit;
 }
 
 /**
@@ -245,7 +194,6 @@ export function updateEnemies(world: World, _input: InputState, rng: Rng): GameE
   world.enemies = world.enemies.filter((enemy) => enemy.alive || enemy.kind === 'saucer');
 
   events.push(...updateSaucer(world, rng));
-  events.push(...resolveShellHits(world, rng));
   updateDebris(world);
   events.push(...radarPing(world));
   return events;
@@ -262,11 +210,12 @@ function spawnEnemies(world: World, _input: InputState, rng: Rng): GameEvent[] {
 /** The systems this module installs, in the order they run. */
 export const enemySystems = [updateEnemies, spawnEnemies] as const;
 
-/** Installs the enemy systems on the world, once. */
+/** Installs the enemy systems and the shell collision test on the world, once. */
 export function registerEnemySystems(): void {
   for (const system of enemySystems) {
     if (!systems.includes(system)) systems.push(system);
   }
+  if (!shellTargets.includes(resolveShellHits)) shellTargets.push(resolveShellHits);
 }
 
 registerEnemySystems();

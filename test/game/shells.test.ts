@@ -7,6 +7,7 @@ import {
   WORLD_SIZE,
 } from '../../src/data/constants';
 import { shellHitRadius } from '../../src/game/obstacles';
+import { createRng } from '../../src/engine/rng';
 import { firePlayerShell, updateShells } from '../../src/game/shells';
 import { makeWorld } from './fixtures';
 import type { GameEvent, Obstacle, Shell, World } from '../../src/game/types';
@@ -21,7 +22,7 @@ const obstacle = (kind: Obstacle['kind'], z: number): Obstacle => ({
 /** Runs ticks until an event comes back, so a test can say what stopped a shell. */
 function runUntilEvent(world: World, maxTicks = 64): { events: GameEvent[]; ticks: number } {
   for (let ticks = 1; ticks <= maxTicks; ticks += 1) {
-    const events = updateShells(world);
+    const events = updateShells(world, createRng(1));
     if (events.length > 0) return { events, ticks };
   }
   return { events: [], ticks: maxTicks };
@@ -94,7 +95,7 @@ describe('updateShells', () => {
   it('flies a tick of sub-steps along the heading', () => {
     const world = makeWorld();
     firePlayerShell(world);
-    expect(updateShells(world)).toEqual([]);
+    expect(updateShells(world, createRng(1))).toEqual([]);
     expect(world.shells[0]!.pos).toEqual({ x: 0, z: SHELL_SPEED_UNITS_PER_TICK });
     expect(world.shells[0]!.ticksLeft).toBe(SHELL_LIFE_TICKS - 1);
   });
@@ -117,7 +118,7 @@ describe('updateShells', () => {
     for (let tick = 0; tick < Math.ceil(SHELL_LIFE_TICKS); tick += 1) {
       const shell = world.shells[0];
       if (shell) travelled = shell.pos.z;
-      updateShells(world);
+      updateShells(world, createRng(1));
     }
     expect(travelled).toBeLessThan(SHELL_RANGE_UNITS);
     expect(travelled).toBeGreaterThan(SHELL_RANGE_UNITS - SHELL_SPEED_UNITS_PER_TICK);
@@ -176,7 +177,7 @@ describe('updateShells', () => {
     const world = makeWorld();
     firePlayerShell(world);
     world.shells[0]!.pos = { x: 0, z: WORLD_SIZE / 2 - SHELL_SPEED_UNITS_PER_TICK };
-    updateShells(world);
+    updateShells(world, createRng(1));
     expect(world.shells[0]!.pos.z).toBeCloseTo(-WORLD_SIZE / 2, 6);
   });
 
@@ -186,7 +187,7 @@ describe('updateShells', () => {
       { id: 1, owner: 'player', pos: { x: 0, z: 0 }, y: 0, heading: 0, ticksLeft: 10 },
     ];
     const shell = world.shells[0]!;
-    const [event] = updateShells(world);
+    const [event] = updateShells(world, createRng(1));
     shell.pos.z = 99999;
     expect(event).toEqual<GameEvent>({
       type: 'shellHitObstacle',
@@ -201,7 +202,7 @@ describe('updateShells', () => {
       { id: 1, owner: 'player', pos: { x: 0, z: 0 }, y: 0, heading: 0, ticksLeft: 10 },
       { id: 2, owner: 'enemy', pos: { x: 0, z: 0 }, y: 0, heading: 0, ticksLeft: 0.25 },
     ];
-    const events = updateShells(world);
+    const events = updateShells(world, createRng(1));
     expect(events).toEqual<GameEvent[]>([
       { type: 'shellHitObstacle', owner: 'player', pos: { x: 0, z: 3 * SHELL_STEP_UNITS } },
       { type: 'shellExpired', owner: 'enemy', pos: { x: 0, z: SHELL_STEP_UNITS } },

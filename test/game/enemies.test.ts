@@ -6,6 +6,7 @@ import {
   ENEMY_IN_RANGE_UNITS,
   MISSILE_HITTABLE_BELOW,
   MISSILE_TIMEOUT_TIMOUT,
+  OBSTACLE_TANK_RADIUS,
   RADAR_SWEEP_TICKS_PER_REV,
   SAUCER_DEATH_TICKS,
   SAUCER_MIN_SCORE,
@@ -19,12 +20,12 @@ import {
   enemySystems,
   fireEnemyShell,
   registerEnemySystems,
-  resolveShellHits,
   updateEnemies,
 } from '../../src/game/enemies';
 import { pointsFor } from '../../src/game/score';
+import { shellTargets, updateShells } from '../../src/game/shells';
 import { updateSpawner } from '../../src/game/spawn';
-import type { Enemy, EnemyKind, GameEvent, Shell } from '../../src/game/types';
+import type { Enemy, EnemyKind, GameEvent, Shell, World } from '../../src/game/types';
 import { createWorld, systems, updateWorld } from '../../src/game/world';
 import { enemyBrain, internalState } from '../../src/game/worldState';
 import { makeWorld } from './fixtures';
@@ -68,25 +69,34 @@ function play(ticks: number, seed = 1, input: InputState = NEUTRAL_INPUT) {
 
 afterEach(() => {
   systems.length = 0;
+  shellTargets.length = 0;
 });
 
 describe('registerEnemySystems', () => {
   it('installs the enemies and the spawner, in that order, once', () => {
     systems.length = 0;
+    shellTargets.length = 0;
     registerEnemySystems();
     registerEnemySystems();
     expect(systems).toEqual([...enemySystems]);
+    // And the shell collision test, which updateShells runs on every sub-step.
+    expect(shellTargets).toHaveLength(1);
   });
 });
 
-describe('resolveShellHits', () => {
+describe('resolveShellHits, through the sub-steps of a shell in flight', () => {
+  /** A shell just short of the target at (0, 3000), flown one tick of sub-steps. */
+  function fire(world: World, owner: Shell['owner'], from = 2800, seed = 1): GameEvent[] {
+    registerEnemySystems();
+    world.shells = [shellOn(owner, { x: 0, z: from })];
+    return updateShells(world, createRng(seed));
+  }
+
   it('destroys the unit a player shell reaches, scores it and scatters it', () => {
     const world = makeWorld();
-    const tank = target('tank');
-    world.enemies = [tank];
-    world.shells = [shellOn('player')];
+    world.enemies = [target('tank')];
 
-    const events = resolveShellHits(world, createRng(1));
+    const events = fire(world, 'player');
 
     expect(events).toContainEqual<GameEvent>({
       type: 'enemyDestroyed',
@@ -96,15 +106,16 @@ describe('resolveShellHits', () => {
     expect(world.score).toBe(1000);
     expect(world.enemies).toEqual([]);
     expect(world.debris).toHaveLength(DEBRIS_PIECES);
+    // The spent shell comes off the field, and does not burst on anything else.
     expect(world.shells).toEqual([]);
+    expect(events.some((event) => event.type === 'shellHitObstacle')).toBe(false);
   });
 
   it('pays the ROM rate for every kind', () => {
     for (const kind of ['tank', 'supertank', 'missile', 'saucer'] as const) {
       const world = makeWorld();
       world.enemies = [target(kind)];
-      world.shells = [shellOn('player')];
-      resolveShellHits(world, createRng(1));
+      fire(world, 'player');
       expect(world.score, kind).toBe(pointsFor(kind));
     }
   });
@@ -113,41 +124,81 @@ describe('resolveShellHits', () => {
     const world = makeWorld();
     const high = target('missile', MISSILE_HITTABLE_BELOW);
     world.enemies = [high];
-    world.shells = [shellOn('player')];
-    expect(resolveShellHits(world, createRng(1))).toEqual([]);
+
+    expect(fire(world, 'player')).toEqual([]);
     expect(high.alive).toBe(true);
     expect(world.shells).toHaveLength(1);
 
     high.y = MISSILE_HITTABLE_BELOW - 1;
-    expect(resolveShellHits(world, createRng(1))).toContainEqual<GameEvent>({
+    expect(fire(world, 'player')).toContainEqual<GameEvent>({
       type: 'enemyDestroyed',
       kind: 'missile',
       points: 2000,
     });
   });
 
-  it('catches a shell that flew past the enemy inside one tick', () => {
-    // A tick of flight is four sub-steps of 256 units - wider than any hit radius -
-    // so the shell has to be tested where it passed, not only where it stopped.
+  it('kills the tank it passed even though it would burst on a pyramid later', () => {
+    // CheckProjColl tests the unit, then the saucer, then the obstacle, and it does
+    // all three on every sub-step: the tank is reached first, so the tank dies.
     const world = makeWorld();
-    const tank = target('tank');
-    world.enemies = [tank];
-    world.shells = [shellOn('player', { x: 0, z: 3000 + 3 * SHELL_STEP_UNITS })];
+    world.enemies = [target('tank')];
+    world.obstacles = [
+      {
+        kind: 'box',
+        pos: { x: 0, z: 3000 + 2 * SHELL_STEP_UNITS },
+        heading: 0,
+        radius: OBSTACLE_TANK_RADIUS.box,
+      },
+    ];
 
-    expect(resolveShellHits(world, createRng(1))).toContainEqual<GameEvent>({
+    const events = fire(world, 'player');
+
+    expect(events).toContainEqual<GameEvent>({
+      type: 'enemyDestroyed',
+      kind: 'tank',
+      points: 1000,
+    });
+    expect(events.some((event) => event.type === 'shellHitObstacle')).toBe(false);
+  });
+
+  it('catches a tank the shell passed mid-tick and left far behind', () => {
+    // Four sub-steps of 256 units carry the shell well past the widest hit radius,
+    // so a once-a-tick test would have missed this one entirely.
+    const world = makeWorld();
+    world.enemies = [target('tank')];
+
+    const events = fire(world, 'player', 3000 - 2 * SHELL_STEP_UNITS + 100);
+
+    expect(events).toContainEqual<GameEvent>({
       type: 'enemyDestroyed',
       kind: 'tank',
       points: 1000,
     });
   });
 
+  it('never reaches back behind the firer', () => {
+    // An enemy shell leaves the tank and flies forwards; a saucer sitting behind the
+    // tank that fired is in no danger from it.
+    const world = makeWorld();
+    const shooter: Enemy = { ...target('tank'), pos: { x: 0, z: 0 }, heading: 0 };
+    const saucer: Enemy = { ...target('saucer'), pos: { x: 0, z: -700 } };
+    world.enemies = [shooter, saucer];
+    registerEnemySystems();
+    fireEnemyShell(world, shooter);
+
+    const events = updateShells(world, createRng(1));
+
+    expect(events).toEqual([]);
+    expect(saucer.alive).toBe(true);
+    expect(world.shells).toHaveLength(1);
+  });
+
   it('pays nothing when the enemy shoots the saucer down', () => {
     const world = makeWorld();
     const saucer = target('saucer');
     world.enemies = [saucer];
-    world.shells = [shellOn('enemy')];
 
-    const events = resolveShellHits(world, createRng(1));
+    const events = fire(world, 'enemy');
 
     expect(events).toEqual<GameEvent[]>([{ type: 'enemyDestroyed', kind: 'saucer', points: 0 }]);
     expect(world.score).toBe(0);
@@ -159,16 +210,15 @@ describe('resolveShellHits', () => {
 
   it('kills the player with an enemy shell, and names the unit that fired it', () => {
     const world = makeWorld();
-    const shooter = target('supertank');
+    const shooter: Enemy = { ...target('supertank'), pos: { x: 0, z: 1200 }, heading: Math.PI };
     world.enemies = [shooter];
+    registerEnemySystems();
     fireEnemyShell(world, shooter);
-    const shell = world.shells[0]!;
-    shell.pos = { x: 0, z: 0 };
     // By the time it lands the supertank is scrap and a tank has taken its place,
     // so the kind has to have travelled with the shell.
     world.enemies = [target('tank')];
 
-    const events = resolveShellHits(world, createRng(1));
+    const events = updateShells(world, createRng(1));
 
     expect(events).toEqual<GameEvent[]>([{ type: 'playerDestroyed', by: 'supertank' }]);
     expect(world.player.alive).toBe(false);
@@ -184,21 +234,26 @@ describe('resolveShellHits', () => {
     const tank = target('tank');
     world.enemies = [tank];
     enemyBrain(tank).aliveTicks = 900;
-    world.shells = [shellOn('enemy', { x: 0, z: 0 })];
+    registerEnemySystems();
+    world.shells = [shellOn('enemy', { x: 0, z: -SHELL_STEP_UNITS })];
 
-    resolveShellHits(world, createRng(1));
+    updateShells(world, createRng(1));
 
+    expect(world.player.alive).toBe(false);
     expect(enemyBrain(tank).aliveTicks).toBe(0);
   });
 
   it('lets the two shells fly straight through each other', () => {
     // There is no projectile-versus-projectile test anywhere in the ROM.
     const world = makeWorld();
-    world.enemies = [target('tank', 0)];
-    world.enemies[0]!.pos = { x: 0, z: 20000 };
-    world.shells = [shellOn('player', { x: 0, z: 1000 }), shellOn('enemy', { x: 0, z: 1000 })];
+    world.enemies = [{ ...target('tank'), pos: { x: 0, z: 20000 } }];
+    registerEnemySystems();
+    world.shells = [
+      shellOn('player', { x: 0, z: 1000 }),
+      { ...shellOn('enemy', { x: 0, z: 1000 + 4 * SHELL_STEP_UNITS }), heading: Math.PI },
+    ];
 
-    expect(resolveShellHits(world, createRng(1))).toEqual([]);
+    expect(updateShells(world, createRng(1))).toEqual([]);
     expect(world.shells).toHaveLength(2);
   });
 
@@ -209,13 +264,11 @@ describe('resolveShellHits', () => {
     world.lives = 3;
 
     world.enemies = [target('tank')];
-    world.shells = [shellOn('player')];
-    expect(resolveShellHits(world, createRng(1))).toContainEqual<GameEvent>({ type: 'extraLife' });
+    expect(fire(world, 'player')).toContainEqual<GameEvent>({ type: 'extraLife' });
     expect(world.lives).toBe(4);
 
     world.enemies = [target('tank')];
-    world.shells = [shellOn('player')];
-    const again = resolveShellHits(world, createRng(1));
+    const again = fire(world, 'player');
     expect(again.some((event) => event.type === 'extraLife')).toBe(false);
     expect(world.lives).toBe(4);
   });

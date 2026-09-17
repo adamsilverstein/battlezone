@@ -98,7 +98,7 @@ export function updateWorld(world: World, input: InputState, rng: Rng): GameEven
   // Holding the trigger re-fires the moment the cannon reloads; there is no
   // separate reload timer, only the one-shell-in-flight rule.
   if (input.fire) events.push(...firePlayerShell(world));
-  events.push(...updateShells(world));
+  events.push(...updateShells(world, rng));
   for (const system of systems) events.push(...system(world, input, rng));
 
   world.radarAngle = wrapAngle(world.radarAngle + RADAR_SWEEP_RADIANS);

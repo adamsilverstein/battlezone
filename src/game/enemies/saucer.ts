@@ -51,7 +51,7 @@ function rollCourse(brain: EnemyBrain, rng: Rng): void {
 }
 
 /** The saucer on the field, alive or disintegrating, or null. */
-function findSaucer(world: World): Enemy | null {
+export function findSaucer(world: World): Enemy | null {
   return world.enemies.find((enemy) => enemy.kind === 'saucer') ?? null;
 }
 

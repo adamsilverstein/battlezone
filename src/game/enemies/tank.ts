@@ -66,7 +66,6 @@ import {
   ROOKIE_FIRE_MAX_TDIST,
   ROOKIE_FIRE_VIEW_WINDOW,
   SCORE_UNIT,
-  SHELL_LIFE_TICKS,
   TANGLE_UNIT_RADIANS,
   TANK_TANK_RADIUS,
   TDIST_UNIT,
@@ -74,7 +73,8 @@ import {
 import { TAU, clamp, wrapAngle } from '../../engine/math';
 import { bearingTo, circleHitsObstacle, octagonalDistance, wrapCoordinate } from '../collision';
 import { TURN_STEP_RADIANS } from '../player';
-import type { Enemy, GameEvent, Rng, Shell, World } from '../types';
+import { fireShell } from '../shells';
+import type { Enemy, GameEvent, Rng, World } from '../types';
 import {
   ageEnemy,
   enemyBrain,
@@ -219,20 +219,9 @@ function decide(world: World, enemy: Enemy, brain: EnemyBrain, rng: Rng): void {
 export function fireEnemyShell(world: World, enemy: Enemy): GameEvent[] {
   if (world.shells.some((shell) => shell.owner === 'enemy')) return [];
 
-  const state = internalState(world);
-  const shell: Shell = {
-    id: state.nextShellId,
-    owner: 'enemy',
-    pos: { ...enemy.pos },
-    y: 0,
-    heading: enemy.heading,
-    ticksLeft: SHELL_LIFE_TICKS,
-  };
-  world.shells.push(shell);
   // Whose shell it is, for the death report: the firer may be dead by the time it
   // lands, so the kind cannot be looked up from the field later.
-  rememberShellFirer(shell, enemy.kind);
-  state.nextShellId += 1;
+  rememberShellFirer(fireShell(world, 'enemy', enemy.pos, enemy.heading), enemy.kind);
   return [{ type: 'enemyFired' }];
 }
 
