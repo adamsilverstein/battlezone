@@ -207,14 +207,19 @@ export function drawModel(
   const litAt = (base: number, depth: number): number =>
     depthCue ? depthIntensity(base, depth) : base;
 
+  // The object is placed once and its vertices hang off that, which is both what
+  // the original did - ROTPNT rotates the object's position and the vector
+  // generator draws the picture relative to it - and the only way a model stays
+  // rigid on a torus. Taking each vertex into view space on its own would wrap
+  // the ones past the seam to the far side of the world, and a shape sitting on
+  // that line would be drawn with its corners 65,000 units apart.
+  const origin = toView(cam, { x: pos.x, y: pos.y + MODEL_GROUND_LIFT, z: pos.z });
   // ROM vertices are [forward, left, up]; render space is (-left, up, forward).
   const views = model.vertices.map((v) => {
     const local = rotateY({ x: -v[1], y: v[2], z: v[0] }, rot.y);
-    return toView(cam, {
-      x: pos.x + local.x,
-      y: pos.y + local.y + MODEL_GROUND_LIFT,
-      z: pos.z + local.z,
-    });
+    // The offset turns with the camera, exactly as the position did.
+    const seen = rotateY(local, -cam.heading);
+    return { x: origin.x + seen.x, y: origin.y + seen.y, z: origin.z + seen.z };
   });
 
   const draw = (a: Vec3, b: Vec3): void => {
