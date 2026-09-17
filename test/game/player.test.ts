@@ -2,13 +2,14 @@ import { describe, expect, it } from 'vitest';
 import {
   MOVE_STEP_UNITS,
   PLAYER_OBSTACLE_RADIUS,
+  TANK_TANK_RADIUS,
   TURN_STEP_DEGREES,
   WORLD_SIZE,
 } from '../../src/data/constants';
 import { TAU } from '../../src/engine/math';
 import { PLAYER_START, resetPlayer, updatePlayer } from '../../src/game/player';
 import { makeWorld, sticks } from './fixtures';
-import type { GameEvent, Obstacle } from '../../src/game/types';
+import type { Enemy, GameEvent, Obstacle } from '../../src/game/types';
 import { NEUTRAL_INPUT } from '../../src/input/types';
 
 const TURN_STEP = (TURN_STEP_DEGREES / 360) * TAU;
@@ -188,5 +189,51 @@ describe('resetPlayer', () => {
     updatePlayer(world, sticks(1, 1));
     resetPlayer(world);
     expect(updatePlayer(world, sticks(1, 1))).toEqual<GameEvent[]>([{ type: 'motionBlocked' }]);
+  });
+});
+
+describe('updatePlayer against the enemy', () => {
+  const tank = (z: number): Enemy => ({
+    id: 1,
+    kind: 'tank',
+    pos: { x: 0, z },
+    heading: Math.PI,
+    y: 0,
+    alive: true,
+    state: 'approach',
+    timer: 10,
+  });
+
+  it('stops short of a parked enemy tank, and says so once', () => {
+    // OBJOBJ runs its $500 tank-versus-tank test for the player as well, so an
+    // enemy tank is as solid as an obstacle.
+    const world = makeWorld();
+    world.enemies = [tank(TANK_TANK_RADIUS + MOVE_STEP_UNITS)];
+
+    const first = updatePlayer(world, sticks(1, 1));
+    expect(first).toEqual<GameEvent[]>([{ type: 'motionBlocked' }]);
+    expect(world.player.pos).toEqual({ x: 0, z: 0 });
+
+    // The boing plays once per contact, exactly as for an obstacle.
+    expect(updatePlayer(world, sticks(1, 1))).toEqual([]);
+  });
+
+  it('drives on past a tank that is dead, or one still out of contact', () => {
+    const world = makeWorld();
+    world.enemies = [{ ...tank(TANK_TANK_RADIUS + MOVE_STEP_UNITS), alive: false }];
+    expect(updatePlayer(world, sticks(1, 1))).toEqual([]);
+    expect(world.player.pos.z).toBeGreaterThan(0);
+
+    const clear = makeWorld();
+    clear.enemies = [tank(TANK_TANK_RADIUS + 4 * MOVE_STEP_UNITS)];
+    expect(updatePlayer(clear, sticks(1, 1))).toEqual([]);
+    expect(clear.player.pos.z).toBeGreaterThan(0);
+  });
+
+  it('is not stopped by the saucer, which OBJOBJ does not know about', () => {
+    const world = makeWorld();
+    world.enemies = [{ ...tank(TANK_TANK_RADIUS - 1), kind: 'saucer', y: 1024 }];
+    expect(updatePlayer(world, sticks(1, 1))).toEqual([]);
+    expect(world.player.pos.z).toBeGreaterThan(0);
   });
 });

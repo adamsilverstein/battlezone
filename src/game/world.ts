@@ -15,27 +15,22 @@
  * and its inputs.
  */
 
-import {
-  DEFAULT_OPTIONS,
-  ENEMY_IN_RANGE_UNITS,
-  RADAR_SWEEP_PER_TICK,
-  RETICLE_LOCK_HEADING,
-  TANGLE_UNIT_RADIANS,
-} from '../data/constants';
+import { DEFAULT_OPTIONS, RADAR_SWEEP_PER_TICK, TANGLE_UNIT_RADIANS } from '../data/constants';
 import { wrapAngle } from '../engine/math';
 import { createRng } from '../engine/rng';
 import type { InputState } from '../input/types';
-import { bearingTo, octagonalDistance } from './collision';
+import { isEnemyInRange, isTargetInSights } from './collision';
 import { placeObstacles } from './obstacles';
 import { PLAYER_START, updatePlayer } from './player';
 import { firePlayerShell, updateShells } from './shells';
-import type { Enemy, GameEvent, Rng, World } from './types';
+import type { GameEvent, Rng, World } from './types';
 
-/** How far the radar sweep line advances each tick: `$0B` heading units. */
-const RADAR_SWEEP_RADIANS = RADAR_SWEEP_PER_TICK * TANGLE_UNIT_RADIANS;
-
-/** How near dead ahead an enemy has to be for the reticle to flare open. */
-const RETICLE_LOCK_RADIANS = RETICLE_LOCK_HEADING * TANGLE_UNIT_RADIANS;
+/**
+ * How far the radar sweep line advances each tick: `$0B` heading units.  The
+ * enemy systems need the same step to tell when the sweep has just passed the
+ * enemy's bearing, which is when the blip relights.
+ */
+export const RADAR_SWEEP_RADIANS = RADAR_SWEEP_PER_TICK * TANGLE_UNIT_RADIANS;
 
 /**
  * Per-tick systems, run in registration order after the player and the shells.
@@ -79,34 +74,17 @@ export function createAttractWorld(): World {
   return createWorld(createRng(0));
 }
 
-/** The nearest living enemy, which is the one the HUD talks about. */
-function nearestEnemy(world: World): { enemy: Enemy; distance: number } | null {
-  let best: { enemy: Enemy; distance: number } | null = null;
-  for (const enemy of world.enemies) {
-    if (!enemy.alive) continue;
-    const distance = octagonalDistance(world.player.pos, enemy.pos);
-    if (!best || distance < best.distance) best = { enemy, distance };
-  }
-  return best;
-}
-
 /**
- * "ENEMY IN RANGE" and the reticle lock.  Both are the same test the ROM makes:
- * in range while the octagonal distance is under `$8000`, and locked while the
- * bearing is within `RETICLE_LOCK_HEADING` heading units of the view direction
- * (BZONE.MAC.txt:971-1019, 7857-7885).  The alert is announced on its rising edge
- * only; it goes quiet without comment.
+ * "ENEMY IN RANGE" and the reticle lock.  Both predicates live in `collision.ts`
+ * with the rest of the range tests; all this does is publish them on the world and
+ * announce the alert on its rising edge - it goes quiet without comment.
  */
 function updateRangeFlags(world: World): GameEvent[] {
-  const target = nearestEnemy(world);
-  const inRange = target !== null && target.distance < ENEMY_IN_RANGE_UNITS;
+  const inRange = isEnemyInRange(world);
   const rising = inRange && !world.enemyInRange;
 
   world.enemyInRange = inRange;
-  world.targetInSights =
-    target !== null &&
-    Math.abs(wrapAngle(bearingTo(world.player.pos, target.enemy.pos) - world.player.heading)) <
-      RETICLE_LOCK_RADIANS;
+  world.targetInSights = isTargetInSights(world);
 
   return rising ? [{ type: 'enemyInRange' }] : [];
 }
@@ -120,7 +98,7 @@ export function updateWorld(world: World, input: InputState, rng: Rng): GameEven
   // Holding the trigger re-fires the moment the cannon reloads; there is no
   // separate reload timer, only the one-shell-in-flight rule.
   if (input.fire) events.push(...firePlayerShell(world));
-  events.push(...updateShells(world));
+  events.push(...updateShells(world, rng));
   for (const system of systems) events.push(...system(world, input, rng));
 
   world.radarAngle = wrapAngle(world.radarAngle + RADAR_SWEEP_RADIANS);
