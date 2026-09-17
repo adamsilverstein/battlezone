@@ -85,7 +85,11 @@ export interface World {
   shells: Shell[];
   obstacles: Obstacle[];
   debris: Debris[];
-  /** Radar sweep angle in radians. */
+  /**
+   * Radar sweep angle in radians, player-relative: 0 is straight ahead (the
+   * wedge), increasing clockwise as seen on the radar. It never includes the
+   * player's heading.
+   */
   radarAngle: number;
   enemyInRange: boolean;
   /** Reticle switches to the "locked" picture. */
