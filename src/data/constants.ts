@@ -298,6 +298,37 @@ export const ENEMY_ACTION_EVADE = 0x40;
 export const ENEMY_AIM_TOLERANCE_ATTRACT = 0x14;
 export const ENEMY_AIM_TOLERANCE_MAX = 20;
 
+/** `TANGLE` units of aiming tolerance given back per point of skill: the 2 in 2 * (10 - skill). */
+export const ENEMY_AIM_TOLERANCE_PER_SKILL = 2;
+
+/**
+ * How close the enemy drives before it stops closing: a tank keeps advancing
+ * only while the distance high byte is at least 5, a supertank while it is at
+ * least 8 (BZONE.MAC.txt:5949-6001).
+ */
+export const ENEMY_STOP_CLOSING_UNITS = 0x500;
+export const SUPERTANK_STOP_CLOSING_UNITS = 0x800;
+
+/**
+ * The aggression ladder, from the player's skill (score in thousands minus the
+ * number of times the enemy has killed them).  The enemy always attacks once the
+ * score passes 10000 - and then re-decides every `ENEMY_ACTION_EXPERT` ticks -
+ * and is at full aggression when the player is 7 units ahead or past 100000
+ * (BZONE.MAC.txt:5683-5767, 6049-6141; docs/reference/original-game.md section 3).
+ */
+export const ENEMY_EXPERT_SCORE = 10000;
+export const ENEMY_MEAN_SKILL = 7;
+export const ENEMY_MEAN_SCORE = 100000;
+
+/** `R.EVAD` reverses instead of circling one time in eight (BZONE.MAC.txt:6081-6109). */
+export const ENEMY_EVADE_REVERSE_CHANCE = 8;
+
+/** `R.RAND` nudges the goal heading by a random amount masked to 0x1F (BZONE.MAC.txt:6111-6131). */
+export const ENEMY_RANDOM_GOAL_MASK = 0x1f;
+
+/** The beginner fire handicap is lifted once the score reaches 2000 (BZONE.MAC.txt:6167-6187). */
+export const ROOKIE_FIRE_MAX_SCORE = 2000;
+
 /** The enemy only fires when its heading error is under 2 `TANGLE` units (BZONE.MAC.txt:6201-6207). */
 export const ENEMY_FIRE_ANGLE_TOLERANCE = 2;
 
@@ -336,6 +367,16 @@ export const MISSILE_TIMEOUT_TIMOUT = 4;
 export const SUPERTANK_AFTER_MISSILES = 5;
 
 /**
+ * How long the supertank breaks off its approach after the player fires.
+ *
+ * ESTIMATE: the ROM has no such behaviour - no enemy reacts to the player's
+ * shell - but the design spec (5.2) gives the supertank a dodge, so this is the
+ * recreation's own number: about 1.5 s, long enough to slide out of the shell's
+ * path at supertank speed and short enough that it resumes attacking at once.
+ */
+export const SUPERTANK_DODGE_TICKS = 0x18;
+
+/**
  * Where a new enemy is placed: at a random heading offset from the player, at a
  * distance of 3/4 of a 16-bit cosine, optionally halved again
  * (ROBCHK/ROB1, BZONE.MAC.txt:7483-7641).  The heading window narrows as the
@@ -343,6 +384,27 @@ export const SUPERTANK_AFTER_MISSILES = 5;
  * front (BZONE.MAC.txt:7407-7451).
  */
 export const ENEMY_SPAWN_ANGLE_MASK = 0x0f;
+
+/**
+ * The four spawn heading windows, widening with the aggression ladder: 0x0F puts
+ * the arrival within about +/-21 degrees of the player's view, 0x78 puts it at
+ * essentially any bearing (docs/reference/original-game.md section 3, "Spawn
+ * placement"; the ROM shifts the 0x0F mask left as `score - deaths` rises).
+ *
+ * NOTE: docs/reference/atari-source-notes.md glosses this the other way round -
+ * "a good player gets enemies in front of them" - but the masks it quotes are
+ * left shifts of 0x0F, which widen the window, and the aggression ladder makes
+ * the wide window the aggressive one.  Going with the widening reading.
+ */
+export const ENEMY_SPAWN_ANGLE_MASKS = [0x0f, 0x1e, 0x3c, 0x78] as const;
+
+/**
+ * Spawn distance: `ROB1` takes 3/4 of full 16-bit scale, and halves it again for
+ * a tank half the time; missiles are always released at the far distance
+ * (BZONE.MAC.txt:7483-7641, docs/reference/original-game.md section 3).
+ */
+export const ENEMY_SPAWN_FAR_UNITS = 0x5fff;
+export const ENEMY_SPAWN_NEAR_UNITS = 0x2fff;
 
 // --------------------------------------------------------------------------- //
 // Missile ("buzz bomb" / R2D3)
@@ -378,6 +440,20 @@ export const MISSILE_CLIMB_PER_TICK = 0x100;
 export const MISSILE_WEAVE_MASK = 0x1f;
 export const MISSILE_SWOOP_TDIST_MIN = 8;
 export const MISSILE_SWOOP_BCD_BIAS = 0x25;
+
+/**
+ * Ticks between flips of the weave's sign (BZONE.MAC.txt:6457-6483).
+ *
+ * NOTE: docs/reference/original-game.md reads the sign from bit 3 of the frame
+ * counter, which would flip every 8 ticks; the source notes say 16.  Going with
+ * the source notes, so the swerve and its mirror image each span one half of the
+ * 32-tick `MISSILE_WEAVE_MASK` cycle.
+ */
+export const MISSILE_WEAVE_SIGN_TICKS = 16;
+
+/** `TANGLE` units the missile's goal heading moves per tick, coarse and fine (BZONE.MAC.txt:6347-6407). */
+export const MISSILE_GOAL_STEPS = 2;
+export const MISSILE_GOAL_FINE_STEPS = 1;
 
 /** The missile never approaches from behind: its goal is clamped to a 90-degree cone (BZONE.MAC.txt:6347-6373). */
 export const MISSILE_APPROACH_CONE_HEADING = 0x40;
@@ -419,6 +495,26 @@ export const SAUCER_DEATH_TICKS = 32;
 
 /** The saucer is spawned by randomising only the high bytes of its position (BZONE.MAC.txt:6839-6845). */
 export const SAUCER_SPAWN_GRANULARITY = 256;
+
+/**
+ * How long a saucer stays before it drifts off.
+ *
+ * ESTIMATE: the original's saucer never leaves - it wanders until it is shot and
+ * merely stops making noise when it is out of view (BZONE.MAC.txt:6697-6849) -
+ * but the design spec (5.2) has it time out, so an ignored saucer does not hang
+ * around for the rest of the game.  One visit is 256 ticks, 16.4 s, the same span
+ * as the ROM's longest gap between saucers.
+ */
+export const SAUCER_VISIT_TICKS = 256;
+
+/**
+ * How high the saucer hovers, in world units.
+ *
+ * ESTIMATE: the surviving source does not record the saucer's altitude, and its
+ * model's own vertices straddle the ground plane, so this is the recreation's
+ * choice - high enough to read as flying above the obstacles it passes through.
+ */
+export const SAUCER_HOVER_HEIGHT = 0x400;
 
 // --------------------------------------------------------------------------- //
 // Radar and "ENEMY IN RANGE"
@@ -825,6 +921,32 @@ export const DEBRIS_VELOCITY_Y = [120, 0, -20, 200, -160, -160] as const;
 export const DEBRIS_VELOCITY_Z = [55, 40, 70, 88, 40, 66] as const;
 export const GRAVITY_PER_TICK = -4;
 export const DEBRIS_Z_VELOCITY_SCALE = 4;
+
+/**
+ * The piece thrown highest: `IZVEL` entry 3 is 88, well above the other five, and
+ * the next enemy appears the instant it lands
+ * (docs/reference/original-game.md section 2, "Hit / explosion behaviour").
+ */
+export const DEBRIS_HIGH_PIECE = 3;
+
+/**
+ * How much smaller the missile's and saucer's debris spray is than a tank's.
+ *
+ * ESTIMATE: the ROM gives the missile its own six chunk models ($18-$1D) but
+ * reuses `EXPTBX`/`EXPTBY` and `IZVEL` unchanged, and it scatters no chunks at all
+ * for the saucer - it fades the saucer out instead (BZONE.MAC.txt:6699-6727).  The
+ * design spec asks for smaller debris for both, so their spray is scaled down.
+ */
+export const DEBRIS_SMALL_SCALE = 0.5;
+
+/**
+ * Debris spin: a piece's orientation changes by `piece * 4 + 3` heading units per
+ * tick, the direction depending on its index, and only about the vertical axis -
+ * "the chunks that appear to be tumbling wildly are actually just spinning in
+ * circles" (EXPLDE, BZONE.MAC.txt:3449-3645; original-game.md section 2).
+ */
+export const DEBRIS_SPIN_PER_PIECE = 4;
+export const DEBRIS_SPIN_BASE = 3;
 
 /** Explosion sound durations in NMIs (`EXPCNT`): long for a tank, short for an obstacle hit. */
 export const EXPLOSION_NMIS_TANK = 0xff;
