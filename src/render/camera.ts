@@ -121,6 +121,16 @@ function clipAndProject(
  * Draws a ROM wireframe model at a world position, yawed by `rot.y`.  The
  * original never pitched or rolled anything (design spec 5.3), so `rot.x` and
  * `rot.z` are accepted for symmetry with `Debris.rot` and ignored.
+ *
+ * A model with no edges is a dot cloud - the missile's exhaust spatter and the
+ * shell burst are drawn with `TDOT`, one lit point per vertex and no lines
+ * between them (`DOT_MODEL_NAMES` in `data/models.ts`) - and a self-referencing
+ * edge is the same thing for one vertex.  Dots are lit vectors of zero length,
+ * which is how the ROM drew them too.
+ *
+ * `opts.depthCue` turns off the distance fade: the saucer and the attract logo
+ * set their brightness with `SINT` and never go through `DQUE`
+ * (docs/reference/atari-source-notes.md, "Depth cueing and clipping").
  */
 export function drawModel(
   d: VectorDisplay,
@@ -129,7 +139,12 @@ export function drawModel(
   pos: Vec3,
   rot: Vec3,
   intensity = 1,
+  opts?: { depthCue?: boolean },
 ): void {
+  const depthCue = opts?.depthCue ?? true;
+  const litAt = (base: number, depth: number): number =>
+    depthCue ? depthIntensity(base, depth) : base;
+
   // ROM vertices are [forward, left, up]; render space is (-left, up, forward).
   const views = model.vertices.map((v) => {
     const local = rotateY({ x: -v[1], y: v[2], z: v[0] }, rot.y);
@@ -140,12 +155,21 @@ export function drawModel(
     });
   });
 
+  const draw = (a: Vec3, b: Vec3): void => {
+    const seg = clipAndProject(a, b);
+    if (!seg) return;
+    d.line(seg.x0, seg.y0, seg.x1, seg.y1, litAt(intensity, (a.z + b.z) / 2));
+  };
+
+  if (model.edges.length === 0) {
+    for (const v of views) draw(v, v);
+    return;
+  }
+
   for (const [i, j] of model.edges) {
     const a = views[i];
     const b = views[j];
     if (!a || !b) continue;
-    const seg = clipAndProject(a, b);
-    if (!seg) continue;
-    d.line(seg.x0, seg.y0, seg.x1, seg.y1, depthIntensity(intensity, (a.z + b.z) / 2));
+    draw(a, b);
   }
 }

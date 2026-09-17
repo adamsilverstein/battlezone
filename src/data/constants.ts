@@ -427,6 +427,14 @@ export const SAUCER_SPAWN_GRANULARITY = 256;
 /** Radar centre in screen vector units, `CENTRX`/`CENTRY` (BZONE.MAC.txt:707-709). */
 export const RADAR_CENTRE = [0, 316] as const;
 
+/**
+ * Radar display radius.  `RDRING` never draws the circle; its four tick marks
+ * stand 60 units out from the centre and the sweep line runs to the same radius
+ * (BZMTNS.MAC.txt:552-577, reference section 1).  A blip's distance from the
+ * centre is scaled so `ENEMY_IN_RANGE_UNITS` lands on the rim.
+ */
+export const RADAR_RADIUS = 60;
+
 /** The sweep advances 0x0B heading units per tick (DRADAR, BZONE.MAC.txt:7697-7703). */
 export const RADAR_SWEEP_PER_TICK = 0x0b;
 
@@ -486,6 +494,24 @@ export const ENEMY_RUMBLE_TDIST_SHIFT = 3;
  * blanked on alternate NMI groups, which makes it blink.
  */
 export const RETICLE_LOCK_HEADING = 2;
+
+/**
+ * The reticle blink while a shell is in flight: on for 32 NMIs, off for 32
+ * (reference section 1), so the period is two ticks lit and two dark - the same
+ * cadence as `MESSAGE_FLASH_MASK`.
+ */
+export const RETICLE_BLINK_NMIS = 32;
+export const RETICLE_BLINK_TICKS = RETICLE_BLINK_NMIS / NMI_PER_TICK;
+
+/**
+ * Reserve-tank icons: the origin of the first `TSYMBL` icon and the step to the
+ * next one.  The origin is from the ROM (INFO, BZONE.MAC.txt:8275).  The step is
+ * NOT: nothing in the source states it, and 57 is inferred from the 48-unit-wide
+ * icon art plus the gap the reference measures off the screen photographs
+ * ("icon ~57 units wide", reference section 1).  ESTIMATE.
+ */
+export const LIVES_ICON_ORIGIN = [128, 360] as const;
+export const LIVES_ICON_SPACING = 57;
 
 /**
  * The "ENEMY TO LEFT/RIGHT/REAR" prompt appears when the enemy is 22 or more
