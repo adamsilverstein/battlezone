@@ -27,6 +27,7 @@ import {
   highScoreRowText,
   rowOrigin,
 } from '../../src/render/screens';
+import { VIEW_CLIP } from '../../src/render/clip';
 import { drawText } from '../../src/render/text';
 import { createRecordingDisplay, type RecordedLine } from '../../src/render/vectorDisplay';
 
@@ -75,6 +76,22 @@ describe('drawTitle', () => {
     expect(spread(record((d) => drawTitle(d, LOGO_TICKS - 1)))).toBeLessThan(
       spread(record((d) => drawTitle(d, LOGO_TICKS / 2))),
     );
+  });
+
+  it('stays inside the play-area window, out of the status strip', () => {
+    // Right at the start of the flight the letters are far taller than the
+    // screen; the ROM's window circuit stopped the beam at the top of the 3D
+    // view and never let them into the red strip.
+    for (const ticks of [0, 1, 8, LOGO_TICKS - 1]) {
+      const lines = record((d) => drawTitle(d, ticks));
+      expect(lines.length, `ticks ${ticks}`).toBeGreaterThan(0);
+      for (const line of lines) {
+        expect(Math.max(line.y0, line.y1), `ticks ${ticks}`).toBeLessThanOrEqual(VIEW_CLIP.top);
+        expect(Math.min(line.y0, line.y1), `ticks ${ticks}`).toBeGreaterThanOrEqual(
+          VIEW_CLIP.bottom,
+        );
+      }
+    }
   });
 
   it('draws the letters at the ROM full brightness', () => {

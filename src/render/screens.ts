@@ -29,6 +29,12 @@
  * in it.  From there it is the same `SCREEN_SCALE / depth` divide as the rest of
  * the game, so the sign keeps its proportions, rises, shrinks and holds a little
  * real perspective as it goes.
+ *
+ * The pieces are 3D objects like any other, so they go through the same play-area
+ * window the battlefield does (`VIEW_CLIP`, the hardware's y <= +192).  Close in,
+ * at the start of the flight, the letters are far taller than the screen, and
+ * without that clip their tops would run up through the status strip - which the
+ * ROM's window circuit made impossible.
  */
 
 import {
@@ -67,6 +73,7 @@ import {
   message,
   scoreDigits,
 } from './messages';
+import { VIEW_CLIP, clipSegment } from './clip';
 import { drawText } from './text';
 import type { VectorDisplay } from './vectorDisplay';
 
@@ -153,7 +160,9 @@ export function drawTitle(d: VectorDisplay, ticks: number): void {
       if (!a || !b) continue;
       const [x0, y0] = logoPoint(a, depth, height);
       const [x1, y1] = logoPoint(b, depth, height);
-      d.line(x0, y0, x1, y1, LOGO_INTENSITY_SCALED);
+      const clipped = clipSegment(x0, y0, x1, y1, VIEW_CLIP);
+      if (!clipped) continue;
+      d.line(clipped[0], clipped[1], clipped[2], clipped[3], LOGO_INTENSITY_SCALED);
     }
   }
 }
