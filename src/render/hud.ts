@@ -36,9 +36,9 @@ import {
 } from '../data/constants';
 import { LIVES_TANK, RADAR, RETICLE_LOCKED, RETICLE_NORMAL } from '../data/pictures';
 import { wrapAngle } from '../engine/math';
-import { bearingTo, octagonalDistance } from '../game/collision';
+import { bearingTo, nearestEnemyUnit, octagonalDistance } from '../game/collision';
 import { playerShellInFlight } from '../game/shells';
-import type { Enemy, World } from '../game/types';
+import type { World } from '../game/types';
 import { SCORE_DIGITS, drawMessage, drawPicture, message, scoreDigits } from './messages';
 import type { VectorDisplay } from './vectorDisplay';
 
@@ -83,11 +83,6 @@ function radarPoint(radius: number, bearing: number): readonly [number, number] 
   return [cx + radius * Math.sin(bearing), cy + radius * Math.cos(bearing)];
 }
 
-/** The unit the radar tracks: the enemy tank or missile, never the saucer. */
-function radarTarget(world: World): Enemy | undefined {
-  return world.enemies.find((e) => e.alive && e.kind !== 'saucer');
-}
-
 /**
  * The blip's brightness.  `BLIP` is set to `$F0` when the sweep passes within
  * `RADAR_BLIP_WINDOW` heading units of the enemy's bearing and decays by 8 per
@@ -119,7 +114,11 @@ export function drawRadar(d: VectorDisplay, world: World): void {
   const [sx, sy] = radarPoint(RADAR_RADIUS, world.radarAngle);
   d.line(cx, cy, sx, sy, RADAR_SWEEP_INTENSITY);
 
-  const target = radarTarget(world);
+  // `nearestEnemyUnit` is the same choice the range alert, the reticle lock and
+  // the blip ping in the simulation make - the nearest live unit that is not the
+  // saucer - so the blip can never be tracking a different tank from the one
+  // "ENEMY IN RANGE" is lit for.
+  const target = nearestEnemyUnit(world);
   if (!target) return;
   // Range and bearing come from `game/collision.ts`, the same octagonal distance
   // and torus-aware bearing the simulation's range alert and reticle lock use, so

@@ -168,6 +168,17 @@ describe('drawRadar', () => {
     expect(dots(record((d) => drawRadar(d, worldWith({ enemies: [saucer] }))))).toHaveLength(0);
   });
 
+  it('tracks the nearest unit, the one the rest of the game is aiming at', () => {
+    // Two units on the field: the alert, the reticle lock and the ping in the
+    // simulation all follow the nearest, so the blip has to as well.
+    const far = tankAt(0, ENEMY_IN_RANGE_UNITS * 0.75, { id: 1 });
+    const near = tankAt(ENEMY_IN_RANGE_UNITS / 4, 0, { id: 2, kind: 'missile' });
+    const world = worldWith({ enemies: [far, near], radarAngle: TAU / 4 });
+    const blip = dots(record((d) => drawRadar(d, world)))[0]!;
+    expect(round(blip.x0)).toBe(round(CX + RADAR_RADIUS / 4));
+    expect(round(blip.y0)).toBe(round(CY));
+  });
+
   it('draws no blip for a dead enemy', () => {
     const enemy = tankAt(1000, 1000, { alive: false });
     expect(dots(record((d) => drawRadar(d, worldWith({ enemies: [enemy] }))))).toHaveLength(0);
