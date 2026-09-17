@@ -49,6 +49,7 @@ import {
   INITIALS_TIMEOUT_TIMOUT,
   LOGO_TICKS,
   PLAYER_OBSTACLE_RADIUS,
+  TANK_TANK_RADIUS,
   TICKS_PER_TIMOUT,
   WORLD_SIZE,
 } from '../data/constants';
@@ -56,10 +57,9 @@ import { TAU } from '../engine/math';
 import { NEUTRAL_INPUT, type InputState } from '../input/types';
 import { attractInput } from './attract';
 import { circleHitsObstacle, octagonalDistance, wrapCoordinate } from './collision';
-// Installs the enemy systems on the world; nothing else imports them.
-import './enemies';
 import { insertHighScore, newInitialsEntry, qualifies, updateInitialsEntry } from './highScores';
-import { resetPlayer } from './player';
+// The simulation's entry point, which is also what installs the enemy systems.
+import { createAttractWorld, createWorld, resetPlayer, updateWorld } from './index';
 import type {
   AudioSnapshot,
   Enemy,
@@ -70,7 +70,6 @@ import type {
   Rng,
   World,
 } from './types';
-import { createAttractWorld, createWorld, updateWorld } from './world';
 import { enemyBrain } from './worldState';
 
 /** The flying logo's own flight is the length of the title phase. */
@@ -91,8 +90,13 @@ const GAME_OVER_MESSAGE = 'GAME OVER';
 /** How many spots the respawn tries before it settles for the last one. */
 const RESPAWN_TRIES = 16;
 
-/** How close to an enemy a respawn may put the player. */
-const RESPAWN_CLEARANCE = PLAYER_OBSTACLE_RADIUS * 4;
+/**
+ * How close to an enemy a respawn may put the player: twice the distance at which
+ * the two tanks are touching.  Inside `TANK_TANK_RADIUS` the player would be
+ * against the enemy with nowhere to drive, which is exactly the collision the ROM
+ * re-rolls the spot to avoid.
+ */
+const RESPAWN_CLEARANCE = TANK_TANK_RADIUS * 2;
 
 /** The phases nobody is playing. */
 type AttractPhase = 'attractTitle' | 'attractHighScores' | 'attractDemo';

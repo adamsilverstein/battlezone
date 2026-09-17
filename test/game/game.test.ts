@@ -6,10 +6,13 @@ import {
   GAME_OVER_TICKS,
   INITIALS_LENGTH,
   INITIALS_REPEAT_TICKS,
+  PLAYER_OBSTACLE_RADIUS,
   SHELL_STEPS_PER_TICK,
   SHELL_STEP_UNITS,
+  TANK_TANK_RADIUS,
 } from '../../src/data/constants';
 import { createRng } from '../../src/engine/rng';
+import { circleHitsObstacle, octagonalDistance } from '../../src/game/collision';
 import {
   ATTRACT_DEMO_TICKS,
   ATTRACT_HIGH_SCORE_TICKS,
@@ -241,6 +244,26 @@ describe('the death sequence', () => {
 
     expect(spots.size).toBeGreaterThan(1);
     expect(headings.size).toBeGreaterThan(1);
+  });
+
+  it('never sets the player down inside an obstacle or against the enemy', () => {
+    for (let seed = 0; seed < 12; seed += 1) {
+      const game = play(seed);
+      run(game, 5);
+      killPlayer(game);
+      run(game, DEATH_SEQUENCE_TICKS);
+      const { world } = game.state;
+
+      expect(
+        circleHitsObstacle(world.player.pos, PLAYER_OBSTACLE_RADIUS, world.obstacles),
+      ).toBeFalsy();
+      for (const enemy of world.enemies) {
+        if (!enemy.alive) continue;
+        expect(octagonalDistance(world.player.pos, enemy.pos)).toBeGreaterThanOrEqual(
+          TANK_TANK_RADIUS,
+        );
+      }
+    }
   });
 
   it('lets a shell already in flight score from beyond the grave', () => {
