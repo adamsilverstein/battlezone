@@ -13,15 +13,10 @@ import { createRng } from '../../src/engine/rng';
 import { PLAYER_START } from '../../src/game/player';
 import type { Enemy, GameEvent, Rng, World } from '../../src/game/types';
 import { createAttractWorld, createWorld, systems, updateWorld } from '../../src/game/world';
+import { sticks } from './fixtures';
 import { NEUTRAL_INPUT, type InputState } from '../../src/input/types';
 
 const SWEEP_STEP = (RADAR_SWEEP_PER_TICK / 256) * TAU;
-
-const sticks = (leftTread: -1 | 0 | 1, rightTread: -1 | 0 | 1): InputState => ({
-  ...NEUTRAL_INPUT,
-  leftTread,
-  rightTread,
-});
 
 const enemyAt = (x: number, z: number): Enemy => ({
   id: 1,

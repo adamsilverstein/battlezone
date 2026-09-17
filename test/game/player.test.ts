@@ -7,34 +7,11 @@ import {
 } from '../../src/data/constants';
 import { TAU } from '../../src/engine/math';
 import { PLAYER_START, resetPlayer, updatePlayer } from '../../src/game/player';
-import type { GameEvent, Obstacle, World } from '../../src/game/types';
-import { NEUTRAL_INPUT, type InputState } from '../../src/input/types';
+import { makeWorld, sticks } from './fixtures';
+import type { GameEvent, Obstacle } from '../../src/game/types';
+import { NEUTRAL_INPUT } from '../../src/input/types';
 
 const TURN_STEP = (TURN_STEP_DEGREES / 360) * TAU;
-
-/** A bare world: just a player and whatever obstacles the test cares about. */
-function makeWorld(obstacles: Obstacle[] = []): World {
-  return {
-    tick: 0,
-    player: { pos: { x: 0, z: 0 }, heading: 0, moving: false, turning: false, alive: true },
-    enemies: [],
-    shells: [],
-    obstacles,
-    debris: [],
-    radarAngle: 0,
-    enemyInRange: false,
-    targetInSights: false,
-    score: 0,
-    lives: 3,
-    nextBonusAt: null,
-  };
-}
-
-const sticks = (leftTread: -1 | 0 | 1, rightTread: -1 | 0 | 1): InputState => ({
-  ...NEUTRAL_INPUT,
-  leftTread,
-  rightTread,
-});
 
 describe('updatePlayer tread kinematics', () => {
   it('drives forward along the heading with both sticks forward', () => {

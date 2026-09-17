@@ -8,24 +8,8 @@ import {
 } from '../../src/data/constants';
 import { shellHitRadius } from '../../src/game/obstacles';
 import { firePlayerShell, updateShells } from '../../src/game/shells';
+import { makeWorld } from './fixtures';
 import type { GameEvent, Obstacle, Shell, World } from '../../src/game/types';
-
-function makeWorld(obstacles: Obstacle[] = []): World {
-  return {
-    tick: 0,
-    player: { pos: { x: 0, z: 0 }, heading: 0, moving: false, turning: false, alive: true },
-    enemies: [],
-    shells: [],
-    obstacles,
-    debris: [],
-    radarAngle: 0,
-    enemyInRange: false,
-    targetInSights: false,
-    score: 0,
-    lives: 3,
-    nextBonusAt: null,
-  };
-}
 
 const obstacle = (kind: Obstacle['kind'], z: number): Obstacle => ({
   kind,
