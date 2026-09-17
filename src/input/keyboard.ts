@@ -29,15 +29,37 @@ function isMapped(code: string): boolean {
  * a `RawInput`. Held state, not events, is what the simulation needs, so the
  * listeners only maintain a set and `read()` stays a plain lookup.
  *
+ * WHY A TAP IS LATCHED
+ * -------------------
+ * The simulation polls once a tick, every 64 ms, and browsers deliver a keydown
+ * and its keyup as separate tasks: a quick tap - which is how anyone presses
+ * start, and how a test's `keyboard.press` always behaves - can begin and end
+ * between two polls and leave the held set empty at both of them, so the press
+ * never happens at all. Every keydown is therefore latched until the next
+ * `read`, whatever the keyup does in between, and the tap arrives as one held
+ * frame. `read` is the only consumer of that latch, so it clears it, which makes
+ * it the one method here that is not a pure lookup.
+ *
+ * A latched tap is a weaker order than a key that is really down, though: it
+ * drives a tread only where nothing held is driving it, so a stray brush of an
+ * opposing key cannot cancel the stick the player is holding.
+ *
  * A mapped key's default action is cancelled: Space and the arrows would otherwise
  * scroll the page out from under the display.
  */
 export function createKeyboard(target: EventTarget): { read(): RawInput; dispose(): void } {
   const heldCodes = new Set<string>();
+  /** Mapped keys pressed since the last `read`, even if they are already up again. */
+  const tappedCodes = new Set<string>();
 
   const onKeyDown = (event: Event): void => {
     const { code } = event as KeyboardEvent;
     if (!isMapped(code)) return;
+    // A key held down repeats, and every repeat is another keydown.  Only the
+    // first one is a press: latching the repeats too would turn a held fire
+    // button into an edge every tick, which would run the initials editor
+    // through all three letters on one press.
+    if (!heldCodes.has(code)) tappedCodes.add(code);
     heldCodes.add(code);
     // Space and the arrows scroll the page and Enter can activate whatever has
     // focus; the cabinet's controls do none of that, so the key stops here.
@@ -52,25 +74,48 @@ export function createKeyboard(target: EventTarget): { read(): RawInput; dispose
 
   return {
     read(): RawInput {
+      const tapped = new Set(tappedCodes);
+      const active = new Set([...heldCodes, ...tapped]);
+      tappedCodes.clear();
+
+      // Held keys are the tank's real orders; a key that has already been let go
+      // of is a ghost, and only fills a tread the held keys are not driving. The
+      // two are kept apart because they cancel: brushing the left arrow while the
+      // right one is held sums to nothing, and the tank would stop dead for a
+      // tick on a key the player never meant to hold.
       let leftTread = 0;
       let rightTread = 0;
-      for (const code of heldCodes) {
+      let ghostLeft = 0;
+      let ghostRight = 0;
+      for (const code of active) {
         const tread = TREAD_KEYS[code];
         if (tread === undefined) continue;
-        leftTread += tread.leftTread;
-        rightTread += tread.rightTread;
+        if (heldCodes.has(code)) {
+          leftTread += tread.leftTread;
+          rightTread += tread.rightTread;
+        } else {
+          ghostLeft += tread.leftTread;
+          ghostRight += tread.rightTread;
+        }
       }
+      if (leftTread === 0) leftTread = ghostLeft;
+      if (rightTread === 0) rightTread = ghostRight;
       return {
         leftTread: clampTread(leftTread),
         rightTread: clampTread(rightTread),
-        fire: heldCodes.has(FIRE_KEY),
-        start: heldCodes.has(START_KEY),
+        fire: active.has(FIRE_KEY),
+        start: active.has(START_KEY),
+        // The press edge this source saw for itself: a key that went down since
+        // the last read, whether or not it is still held.
+        firePressed: tapped.has(FIRE_KEY),
+        startPressed: tapped.has(START_KEY),
       };
     },
     dispose(): void {
       target.removeEventListener('keydown', onKeyDown);
       target.removeEventListener('keyup', onKeyUp);
       heldCodes.clear();
+      tappedCodes.clear();
     },
   };
 }

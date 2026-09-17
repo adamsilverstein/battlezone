@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   ENEMY_IN_RANGE_UNITS,
-  HEADING_UNITS_PER_TURN,
   INTENSITY_MAX,
   LIVES_ICON_ORIGIN,
   LIVES_ICON_SPACING,
@@ -10,7 +9,6 @@ import {
   RADAR_BLIP_DECAY,
   RADAR_CENTRE,
   RADAR_RADIUS,
-  RADAR_SWEEP_PER_TICK,
   RETICLE_BLINK_TICKS,
   SCREEN_HALF_HEIGHT,
   SCREEN_HALF_WIDTH,
@@ -20,7 +18,13 @@ import type { Picture2D } from '../../src/data/types';
 import { TAU } from '../../src/engine/math';
 import type { Enemy, Shell, World } from '../../src/game/types';
 import { createAttractWorld } from '../../src/game/world';
-import { drawHud, drawRadar, drawReticle } from '../../src/render/hud';
+import {
+  createRadarBlips,
+  drawHud,
+  drawRadar,
+  drawReticle,
+  type RadarBlips,
+} from '../../src/render/hud';
 import { drawText } from '../../src/render/text';
 import {
   createRecordingDisplay,
@@ -38,6 +42,21 @@ function record(draw: (d: VectorDisplay) => void): RecordedLine[] {
   draw(d);
   d.endFrame();
   return d.lines;
+}
+
+/**
+ * The blip levels a world produces on its own: the renderer advances them once
+ * per simulated tick, so one advance is one tick of this world's radar sweep.
+ */
+function blipsFor(world: World, ticks = 1): RadarBlips {
+  const blips = createRadarBlips();
+  for (let i = 0; i < ticks; i += 1) blips.advance(world);
+  return blips;
+}
+
+/** The radar as the renderer draws it: this world, and the blips it just produced. */
+function radar(world: World, blips: RadarBlips = blipsFor(world)): RecordedLine[] {
+  return record((d) => drawRadar(d, world, blips));
 }
 
 const keys = (lines: readonly RecordedLine[]): string[] =>
@@ -95,18 +114,19 @@ const HUD_OPTS = {
   highScore: 0,
   showRadar: true,
   showAlert: true,
+  blips: createRadarBlips(),
 };
 
 describe('drawRadar', () => {
   it('draws the ROM tick marks and wedge, and no circle', () => {
-    const lines = record((d) => drawRadar(d, worldWith({})));
+    const lines = radar(worldWith({}));
     for (const segment of pictureKeys(RADAR)) expect(keys(lines)).toContain(segment);
     // Four 8-unit ticks, a two-stroke wedge and the sweep line: no arc segments.
     expect(lines).toHaveLength(pictureKeys(RADAR).length + 1);
   });
 
   it('draws the tick marks brighter than the view wedge', () => {
-    const lines = record((d) => drawRadar(d, worldWith({})));
+    const lines = radar(worldWith({}));
     const tick = lines.find((l) => l.x0 === 68 && l.y0 === CY)!;
     const wedge = lines.find((l) => l.x1 === -36 && l.y1 === 368)!;
     expect(tick.intensity).toBeCloseTo(14 / INTENSITY_MAX, 6);
@@ -114,7 +134,7 @@ describe('drawRadar', () => {
   });
 
   it('draws the sweep line from the centre at the world sweep angle', () => {
-    const lines = record((d) => drawRadar(d, worldWith({ radarAngle: TAU / 4 })));
+    const lines = radar(worldWith({ radarAngle: TAU / 4 }));
     // The one line exactly a radius long out of the centre; the wedge legs
     // reach a little past the rim.
     const sweep = lines.filter(
@@ -129,7 +149,7 @@ describe('drawRadar', () => {
     // Dead abeam to the right at half of radar range, with the sweep on it.
     const enemy = tankAt(ENEMY_IN_RANGE_UNITS / 2, 0);
     const world = worldWith({ enemies: [enemy], radarAngle: TAU / 4 });
-    const blip = dots(record((d) => drawRadar(d, world)));
+    const blip = dots(radar(world));
     expect(blip).toHaveLength(1);
     expect(round(blip[0]!.x0)).toBe(round(CX + RADAR_RADIUS / 2));
     expect(round(blip[0]!.y0)).toBe(round(CY));
@@ -140,37 +160,97 @@ describe('drawRadar', () => {
     const enemy = tankAt(0, ENEMY_IN_RANGE_UNITS / 2);
     const player = { ...createAttractWorld().player, heading: TAU / 4 };
     const world = worldWith({ enemies: [enemy], player, radarAngle: -TAU / 4 });
-    const blip = dots(record((d) => drawRadar(d, world)))[0]!;
+    const blip = dots(radar(world))[0]!;
     // The enemy is dead ahead in world terms but 90 degrees to the player's left.
     expect(round(blip.x0)).toBe(round(CX - RADAR_RADIUS / 2));
     expect(round(blip.y0)).toBe(round(CY));
   });
 
-  it('fades the blip as the sweep moves past the enemy', () => {
+  it('draws nothing for a blip that has never been lit', () => {
+    // The sweep has not been near this enemy, so `BLIP` was never loaded.
     const enemy = tankAt(ENEMY_IN_RANGE_UNITS / 2, 0);
-    const ticksPast = 4;
-    const angle = TAU / 4 + (ticksPast * RADAR_SWEEP_PER_TICK * TAU) / HEADING_UNITS_PER_TURN;
-    const world = worldWith({ enemies: [enemy], radarAngle: angle });
-    const blip = dots(record((d) => drawRadar(d, world)))[0]!;
-    expect(blip.intensity).toBeCloseTo(
-      (RADAR_BLIP_BRIGHTNESS - RADAR_BLIP_DECAY * ticksPast) / INTENSITY_BYTE_MAX,
-      6,
-    );
+    expect(dots(radar(worldWith({ enemies: [enemy], radarAngle: 0 })))).toHaveLength(0);
   });
 
   it('draws no blip for an enemy out of radar range', () => {
     const enemy = tankAt(ENEMY_IN_RANGE_UNITS, 0);
-    expect(dots(record((d) => drawRadar(d, worldWith({ enemies: [enemy] }))))).toHaveLength(0);
+    expect(dots(radar(worldWith({ enemies: [enemy] })))).toHaveLength(0);
   });
 
   it('never shows the saucer on radar', () => {
     const saucer = tankAt(1000, 1000, { kind: 'saucer' });
-    expect(dots(record((d) => drawRadar(d, worldWith({ enemies: [saucer] }))))).toHaveLength(0);
+    expect(dots(radar(worldWith({ enemies: [saucer] })))).toHaveLength(0);
+  });
+
+  it('tracks the nearest unit, the one the rest of the game is aiming at', () => {
+    // Two units on the field: the alert, the reticle lock and the ping in the
+    // simulation all follow the nearest, so the blip has to as well.
+    const far = tankAt(0, ENEMY_IN_RANGE_UNITS * 0.75, { id: 1 });
+    const near = tankAt(ENEMY_IN_RANGE_UNITS / 4, 0, { id: 2, kind: 'missile' });
+    const world = worldWith({ enemies: [far, near], radarAngle: TAU / 4 });
+    const blip = dots(radar(world))[0]!;
+    expect(round(blip.x0)).toBe(round(CX + RADAR_RADIUS / 4));
+    expect(round(blip.y0)).toBe(round(CY));
   });
 
   it('draws no blip for a dead enemy', () => {
     const enemy = tankAt(1000, 1000, { alive: false });
-    expect(dots(record((d) => drawRadar(d, worldWith({ enemies: [enemy] }))))).toHaveLength(0);
+    expect(dots(radar(worldWith({ enemies: [enemy] })))).toHaveLength(0);
+  });
+});
+
+describe('createRadarBlips', () => {
+  const enemy = tankAt(ENEMY_IN_RANGE_UNITS / 2, 0);
+  /** The sweep sitting exactly on that enemy's bearing. */
+  const swept = (): World => worldWith({ enemies: [enemy], radarAngle: TAU / 4 });
+  /** The sweep well away from it. */
+  const elsewhere = (): World => worldWith({ enemies: [enemy], radarAngle: 0 });
+
+  it('lights the blip when the sweep passes and fades it a step a tick', () => {
+    const blips = createRadarBlips();
+    blips.advance(swept());
+    expect(blips.levelFor(enemy.id)).toBe(RADAR_BLIP_BRIGHTNESS);
+    for (const step of [1, 2, 3]) {
+      blips.advance(elsewhere());
+      expect(blips.levelFor(enemy.id)).toBe(RADAR_BLIP_BRIGHTNESS - RADAR_BLIP_DECAY * step);
+    }
+    // And it goes out rather than going negative.
+    for (let i = 0; i < RADAR_BLIP_BRIGHTNESS / RADAR_BLIP_DECAY; i += 1)
+      blips.advance(elsewhere());
+    expect(blips.levelFor(enemy.id)).toBe(0);
+  });
+
+  it('holds the level steady while the player turns', () => {
+    // The bearing is measured from the player's heading, so a pivot slides the
+    // enemy under the sweep - and a level derived from those angles would jump
+    // about while the tank turns. `BLIP` is a byte in RAM and does not.
+    const blips = createRadarBlips();
+    blips.advance(swept());
+    const turned = swept();
+    turned.player = { ...turned.player, heading: TAU / 8 };
+    blips.advance(turned);
+    expect(blips.levelFor(enemy.id)).toBe(RADAR_BLIP_BRIGHTNESS - RADAR_BLIP_DECAY);
+  });
+
+  it('forgets the field it was holding when it is reset', () => {
+    const blips = createRadarBlips();
+    blips.advance(swept());
+    blips.reset();
+    expect(blips.levelFor(enemy.id)).toBe(0);
+  });
+
+  it('draws the held level rather than one derived from the angles', () => {
+    const blips = createRadarBlips();
+    blips.advance(swept());
+    blips.advance(elsewhere());
+    // The sweep is on the enemy again, but the held blip has been faded once, so
+    // the dot is dimmer than the sweep alone would make it.
+    const lines = dots(radar(swept(), blips));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.intensity).toBeCloseTo(
+      (RADAR_BLIP_BRIGHTNESS - RADAR_BLIP_DECAY) / INTENSITY_BYTE_MAX,
+      6,
+    );
   });
 });
 
@@ -286,10 +366,11 @@ describe('drawHud', () => {
 
   it('leaves the radar out for the screens that have no 3D view behind them', () => {
     const world = worldWith({ enemies: [tankAt(3000, 3000)] });
-    const withRadar = keys(hud(world));
-    const without = keys(hud(world, { showRadar: false }));
+    const blips = blipsFor(world);
+    const withRadar = keys(hud(world, { blips }));
+    const without = keys(hud(world, { blips, showRadar: false }));
 
-    for (const line of keys(record((d) => drawRadar(d, world)))) {
+    for (const line of keys(radar(world, blips))) {
       expect(withRadar).toContain(line);
       expect(without).not.toContain(line);
     }

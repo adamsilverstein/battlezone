@@ -28,11 +28,12 @@
  */
 
 import { CRACK_GROUPS, DEFAULT_OPTIONS, EYE_HEIGHT_UNITS } from '../data/constants';
+import { MAX_CATCHUP_TICKS } from '../engine/loop';
 import type { Debris, Enemy, GameState, Shell, World } from '../game/types';
 import { clamp, lerp, wrapAngle } from '../engine/math';
 import type { Camera } from './camera';
 import { drawCrack } from './crack';
-import { drawHud } from './hud';
+import { createRadarBlips, drawHud } from './hud';
 import { drawWorldObjects } from './objects';
 import { drawHorizon } from './scene';
 import {
@@ -112,9 +113,12 @@ export function createRenderer(d: VectorDisplay): {
   // NaN so the first render always takes the "new tick" path and seeds both ends,
   // which is why this placeholder is never actually drawn from.
   let lastTick = Number.NaN;
-  let lastPhase: GameState['phase'] | null = null;
   let lastPhaseTicks = Number.NaN;
+  // NaN again, so the first frame never matches and always snaps.
   let lastCameraSnap = Number.NaN;
+  // The radar blip levels are the one piece of display state the world does not
+  // keep: the ROM holds them in `BLIP` and fades them a step a tick.
+  const blips = createRadarBlips();
   let previous: Snapshot = {
     camera: { x: 0, z: 0, y: EYE_HEIGHT_UNITS, heading: 0 },
     entities: new Map(),
@@ -125,19 +129,31 @@ export function createRenderer(d: VectorDisplay): {
     render(state: GameState, alpha: number): void {
       const { world } = state;
       const { tick } = world;
-      // Things the blend cannot follow: a phase that has just begun, and anything
-      // the state machine put down by hand - a respawn, a demo reset, a fresh
-      // battlefield - which it reports by bumping `cameraSnap`.  Neither can be
-      // inferred from the world alone: a respawn happens on a tick that looks
-      // perfectly consecutive, and on the very tick the crack ends the world does
-      // not advance at all, so waiting for the next tick to notice would leave the
-      // camera sweeping across the field one tick late.
-      const snapRequested =
-        state.phase !== lastPhase ||
-        state.phaseTicks === 0 ||
-        (state.cameraSnap ?? 0) !== lastCameraSnap;
-      lastPhase = state.phase;
+      // The one thing the blend cannot follow is a camera the state machine put
+      // down by hand - a respawn, a demo reset, a fresh battlefield, a new game -
+      // and it cannot be inferred from the world: a respawn happens on a tick
+      // that looks perfectly consecutive, and on the very tick the crack ends the
+      // world does not advance at all, so waiting for the next tick to notice
+      // would leave the camera sweeping across the field one tick late.  So
+      // `game.ts` reports every one of them by bumping `cameraSnap`, and that
+      // counter is the whole signal.  A phase change is not one: the player is
+      // hit on a tick they were really driving through, and treating the step
+      // into `playerDead` as a teleport threw that last tick of motion away.
+      const snapRequested = (state.cameraSnap ?? 0) !== lastCameraSnap;
       lastCameraSnap = state.cameraSnap ?? 0;
+
+      if (snapRequested) blips.reset();
+      // The blips fade once per *simulated* tick, not once per frame, and off the
+      // real world rather than the interpolated view.  A frame that arrives after
+      // the loop caught several ticks up has to fade them all, or the dot lingers
+      // brighter than the ROM's would; the loop never runs more than
+      // `MAX_CATCHUP_TICKS` at once, and a world that went backwards has just been
+      // reset above.  Only this world is in hand for those skipped ticks, but the
+      // sweep is winding-back arithmetic, so a crossing in the middle of a catch-up
+      // still lights the blip - only the enemy's position is a tick or two stale.
+      const elapsed = Number.isNaN(lastTick) ? 1 : tick - lastTick;
+      const ticks = Math.min(Math.max(elapsed, 0), MAX_CATCHUP_TICKS);
+      for (let back = ticks - 1; back >= 0; back -= 1) blips.advance(world, back);
 
       if (tick !== lastTick || snapRequested) {
         const snapshot = snapshotOf(world);
@@ -219,6 +235,7 @@ export function createRenderer(d: VectorDisplay): {
           showAlert: false,
           blinkTick: tick,
           highScore,
+          blips,
         });
       } else {
         drawHorizon(d, cam, tick);
@@ -231,6 +248,7 @@ export function createRenderer(d: VectorDisplay): {
           showAlert: !frozenHud,
           blinkTick: tick,
           highScore,
+          blips,
         });
         if (state.phase === 'attractTitle') drawTitle(d, state.phaseTicks);
         if (state.phase === 'gameOver') drawGameOver(d, state.message);

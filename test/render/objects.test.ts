@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { ENEMY_DISH_STEP, EYE_HEIGHT_UNITS, TANGLE_UNIT_RADIANS } from '../../src/data/constants';
+import {
+  ENEMY_DISH_STEP,
+  EYE_HEIGHT_UNITS,
+  SAUCER_DEATH_TICKS,
+  TANGLE_UNIT_RADIANS,
+} from '../../src/data/constants';
 import { DOT_MODEL_NAMES, MODELS, TREAD_FRAMES } from '../../src/data/models';
 import type { Debris, Enemy, Obstacle, Shell, World } from '../../src/game/types';
 import { createAttractWorld } from '../../src/game/world';
@@ -43,11 +48,11 @@ function modelLines(
   model: string,
   pos: { x: number; y: number; z: number },
   yaw: number,
-  opts?: { depthCue?: boolean },
+  opts?: { depthCue?: boolean; intensity?: number },
 ): RecordedLine[] {
   const d = createRecordingDisplay();
   d.beginFrame();
-  drawModel(d, CAM, MODELS[model]!, pos, { x: 0, y: yaw, z: 0 }, 1, opts);
+  drawModel(d, CAM, MODELS[model]!, pos, { x: 0, y: yaw, z: 0 }, opts?.intensity ?? 1, opts);
   d.endFrame();
   return d.lines;
 }
@@ -138,8 +143,38 @@ describe('drawWorldObjects', () => {
     expect(keys(near)).not.toEqual(keys(grounded));
   });
 
-  it('draws nothing for a dead enemy', () => {
-    expect(draw(worldWith({ enemies: [enemy({ alive: false })] }))).toHaveLength(0);
+  it('fades a dying saucer by its disintegration counter', () => {
+    const dying = (timer: number): Enemy =>
+      enemy({ kind: 'saucer', y: 1200, heading: 0.25, alive: false, state: 'dying', timer });
+    // Half the counter left is half the intensity, on the same shape as a live one.
+    const half = draw(worldWith({ enemies: [dying(SAUCER_DEATH_TICKS / 2)] }));
+    expect(keys(half)).toEqual(
+      keys(
+        modelLines('saucer', { x: 0, y: 1200, z: 6000 }, 0.25, {
+          depthCue: false,
+          intensity: 0.5,
+        }),
+      ),
+    );
+
+    const level = (timer: number): number =>
+      draw(worldWith({ enemies: [dying(timer)] }))[0]!.intensity;
+    expect(level(SAUCER_DEATH_TICKS)).toBe(1);
+    expect(level(SAUCER_DEATH_TICKS)).toBeGreaterThan(level(SAUCER_DEATH_TICKS / 2));
+    expect(level(SAUCER_DEATH_TICKS / 2)).toBeGreaterThan(level(1));
+  });
+
+  it('draws every unit the world is still holding', () => {
+    // The world takes a dead unit off the list itself - the fading saucer is the
+    // one it keeps - so `alive` picks the brightness, not whether to draw.
+    const units = [
+      enemy({ id: 1 }),
+      enemy({ id: 2, kind: 'supertank', pos: { x: 2000, z: 6000 } }),
+    ];
+    const both = draw(worldWith({ enemies: units }));
+    const one = draw(worldWith({ enemies: [units[0]!] }));
+    expect(one.length).toBeGreaterThan(0);
+    expect(both.length).toBeGreaterThan(one.length);
   });
 
   it('draws nothing for an object behind the player', () => {

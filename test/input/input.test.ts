@@ -1,9 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { DEAD_ZONE, type RawInput } from '../../src/input/gamepad';
 import { createInput, quantiseTread } from '../../src/input/input';
-import { fakePad } from './fake-pad';
+import { fakePad, pressed } from './fake-pad';
 
-const NEUTRAL_RAW: RawInput = { leftTread: 0, rightTread: 0, fire: false, start: false };
+const NEUTRAL_RAW: RawInput = {
+  leftTread: 0,
+  rightTread: 0,
+  fire: false,
+  start: false,
+  firePressed: false,
+  startPressed: false,
+};
 
 /** A keyboard stand-in whose reading the test controls. */
 function fakeKeyboard(initial: RawInput = NEUTRAL_RAW): {
@@ -42,6 +49,67 @@ describe('quantiseTread', () => {
 });
 
 describe('createInput', () => {
+  it('reports a press for a pad button tapped between two polls', () => {
+    // The Gamepad API has no events, so the tap only exists in the frames
+    // between polls: `sample` is what sees it, and the latch carries it over.
+    let pads: Gamepad[] = [fakePad()];
+    const input = createInput({ getGamepads: () => pads, keyboard: fakeKeyboard() });
+
+    expect(input.poll()).toMatchObject({ fire: false, firePressed: false });
+
+    // Down and up again, both inside one 64 ms tick.
+    pads = [fakePad({ buttons: pressed(0) })];
+    input.sample();
+    pads = [fakePad()];
+    input.sample();
+
+    expect(input.poll()).toMatchObject({ fire: true, firePressed: true });
+    expect(input.poll()).toMatchObject({ fire: false, firePressed: false });
+  });
+
+  it('reports a start press for a pad tapped between two polls', () => {
+    let pads: Gamepad[] = [fakePad()];
+    const input = createInput({ getGamepads: () => pads, keyboard: fakeKeyboard() });
+    input.poll();
+
+    pads = [fakePad({ buttons: pressed(9) })];
+    input.sample();
+    pads = [fakePad()];
+    input.sample();
+
+    // `InputState` carries no held start, only the edge the game flow uses.
+    expect(input.poll()).toMatchObject({ startPressed: true, anyActivity: true });
+    expect(input.poll()).toMatchObject({ startPressed: false, anyActivity: false });
+  });
+
+  it('gives a held pad button exactly one press, however often it is sampled', () => {
+    const pads = [fakePad({ buttons: pressed(0) })];
+    const input = createInput({ getGamepads: () => pads, keyboard: fakeKeyboard() });
+
+    expect(input.poll()).toMatchObject({ fire: true, firePressed: true });
+    for (let frame = 0; frame < 4; frame += 1) input.sample();
+    expect(input.poll()).toMatchObject({ fire: true, firePressed: false });
+  });
+
+  it('reports a press for a key tapped between two polls', () => {
+    // The keyboard latches a tap until the next read, so a down and an up inside
+    // one tick still arrive as a held frame, and the edge fires exactly once.
+    let tapped = false;
+    const keyboard = {
+      read: (): RawInput => {
+        const raw = { ...NEUTRAL_RAW, fire: tapped };
+        tapped = false;
+        return raw;
+      },
+    };
+    const input = createInput({ getGamepads: () => [], keyboard });
+
+    expect(input.poll()).toMatchObject({ fire: false, firePressed: false });
+    tapped = true;
+    expect(input.poll()).toMatchObject({ fire: true, firePressed: true });
+    expect(input.poll()).toMatchObject({ fire: false, firePressed: false });
+  });
+
   it('reads neutral with no pad and an untouched keyboard', () => {
     const input = createInput({ getGamepads: () => [], keyboard: fakeKeyboard() });
     expect(input.poll()).toEqual({

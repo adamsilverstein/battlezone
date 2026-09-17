@@ -25,7 +25,87 @@ afterEach(() => {
 describe('createKeyboard', () => {
   it('reads neutral before any key is touched', () => {
     const keyboard = keyboardOn(new EventTarget());
-    expect(keyboard.read()).toEqual({ leftTread: 0, rightTread: 0, fire: false, start: false });
+    expect(keyboard.read()).toEqual({
+      leftTread: 0,
+      rightTread: 0,
+      fire: false,
+      start: false,
+      firePressed: false,
+      startPressed: false,
+    });
+  });
+
+  it('holds a tap that begins and ends between two reads', () => {
+    // The simulation polls every 64 ms; a tap on fire or on start is shorter than
+    // that, and dropping it is the difference between the game starting on the
+    // first press and appearing to ignore it.
+    const target = new EventTarget();
+    const keyboard = keyboardOn(target);
+    down(target, 'Space');
+    up(target, 'Space');
+    expect(keyboard.read()).toMatchObject({ fire: true });
+    // And only for the one read: the key really is up.
+    expect(keyboard.read()).toMatchObject({ fire: false });
+  });
+
+  it('holds a tapped start and a tapped tread key too', () => {
+    const target = new EventTarget();
+    const keyboard = keyboardOn(target);
+    down(target, 'Enter');
+    up(target, 'Enter');
+    down(target, 'KeyW');
+    up(target, 'KeyW');
+    expect(keyboard.read()).toMatchObject({ start: true, leftTread: 1 });
+    expect(keyboard.read()).toMatchObject({ start: false, leftTread: 0 });
+  });
+
+  it('does not let a brushed key cancel the stick that is really held', () => {
+    // The player is pivoting right and brushes the left arrow, which is up again
+    // before the next poll. Summing the two would read as neutral and stop the
+    // tank dead for a tick on an order nobody gave.
+    const target = new EventTarget();
+    const keyboard = keyboardOn(target);
+    down(target, 'ArrowRight');
+    down(target, 'ArrowLeft');
+    up(target, 'ArrowLeft');
+    expect(keyboard.read()).toMatchObject({ leftTread: 1, rightTread: -1 });
+    expect(keyboard.read()).toMatchObject({ leftTread: 1, rightTread: -1 });
+  });
+
+  it('still lets a brushed key drive a tread nothing held is driving', () => {
+    // Holding W drives the left tread only, so a brush of the up arrow is the
+    // only order the right tread has and it counts.
+    const target = new EventTarget();
+    const keyboard = keyboardOn(target);
+    down(target, 'KeyW');
+    down(target, 'ArrowUp');
+    up(target, 'ArrowUp');
+    expect(keyboard.read()).toMatchObject({ leftTread: 1, rightTread: 1 });
+    expect(keyboard.read()).toMatchObject({ leftTread: 1, rightTread: 0 });
+  });
+
+  it('keeps reporting a key that is still down after a tap of the same key', () => {
+    const target = new EventTarget();
+    const keyboard = keyboardOn(target);
+    down(target, 'Space');
+    up(target, 'Space');
+    down(target, 'Space');
+    expect(keyboard.read()).toMatchObject({ fire: true });
+    expect(keyboard.read()).toMatchObject({ fire: true });
+  });
+
+  it('counts a held key as one press, however often it repeats', () => {
+    // Holding a key makes the browser repeat its keydown; only the first is a
+    // press, or a held fire button would report an edge every tick.
+    const target = new EventTarget();
+    const keyboard = keyboardOn(target);
+    down(target, 'Space');
+    expect(keyboard.read()).toMatchObject({ fire: true, firePressed: true });
+    down(target, 'Space');
+    down(target, 'Space');
+    expect(keyboard.read()).toMatchObject({ fire: true, firePressed: false });
+    up(target, 'Space');
+    expect(keyboard.read()).toMatchObject({ fire: false, firePressed: false });
   });
 
   it('maps W and S to the left tread', () => {
@@ -99,7 +179,14 @@ describe('createKeyboard', () => {
     const target = new EventTarget();
     const keyboard = keyboardOn(target);
     down(target, 'KeyQ');
-    expect(keyboard.read()).toEqual({ leftTread: 0, rightTread: 0, fire: false, start: false });
+    expect(keyboard.read()).toEqual({
+      leftTread: 0,
+      rightTread: 0,
+      fire: false,
+      start: false,
+      firePressed: false,
+      startPressed: false,
+    });
   });
 
   it('cancels a mapped key so the page cannot scroll under the display', () => {
@@ -128,7 +215,14 @@ describe('createKeyboard', () => {
     const keyboard = createKeyboard(target);
     down(target, 'KeyW');
     keyboard.dispose();
-    expect(keyboard.read()).toEqual({ leftTread: 0, rightTread: 0, fire: false, start: false });
+    expect(keyboard.read()).toEqual({
+      leftTread: 0,
+      rightTread: 0,
+      fire: false,
+      start: false,
+      firePressed: false,
+      startPressed: false,
+    });
     down(target, 'KeyS');
     expect(keyboard.read()).toMatchObject({ leftTread: 0 });
   });

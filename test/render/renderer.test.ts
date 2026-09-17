@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { CRACK_GROUPS, DEFAULT_OPTIONS, EYE_HEIGHT_UNITS } from '../../src/data/constants';
+import { HEADING_UNITS_PER_TURN, RADAR_SWEEP_PER_TICK } from '../../src/data/constants';
+import { MAX_CATCHUP_TICKS } from '../../src/engine/loop';
 import { createAttractWorld } from '../../src/game/world';
 import type { Enemy, GameState, Shell, World } from '../../src/game/types';
 import type { Camera } from '../../src/render/camera';
 import { drawCrack } from '../../src/render/crack';
-import { drawHud, drawReticle } from '../../src/render/hud';
+import { createRadarBlips, drawHud, drawReticle, type RadarBlips } from '../../src/render/hud';
 import { drawWorldObjects } from '../../src/render/objects';
 import { createRenderer } from '../../src/render/renderer';
 import { drawHorizon } from '../../src/render/scene';
@@ -19,10 +21,10 @@ import {
 import { createRecordingDisplay, type RecordedLine } from '../../src/render/vectorDisplay';
 
 /**
- * A state at `tick`.  `phaseTicks` counts up with the tick rather than sitting at
- * zero, because zero is the renderer's signal that a phase has just begun and
- * nothing may be blended across it - the respawn teleport is the case that matters
- * - and these fixtures are all mid-phase.
+ * A state at `tick`, mid-phase.  `phaseTicks` counts up with the tick rather than
+ * sitting at zero simply because that is what a running phase looks like; the
+ * renderer takes no notice of it beyond spotting a world that has stopped
+ * advancing.  The only thing that makes it snap is `cameraSnap`.
  */
 function stateAt(tick: number, x: number, z: number, heading: number): GameState {
   const world = createAttractWorld();
@@ -39,7 +41,13 @@ function stateAt(tick: number, x: number, z: number, heading: number): GameState
  * world at the camera's own position, which is all the camera tests need: the HUD
  * of an empty world is the same wherever the player stands.
  */
-function expected(cam: Camera, tick: number, state?: GameState, view?: World): RecordedLine[] {
+function expected(
+  cam: Camera,
+  tick: number,
+  state?: GameState,
+  view?: World,
+  blips?: RadarBlips,
+): RecordedLine[] {
   const shown = state ?? stateAt(tick, cam.pos.x, cam.pos.z, cam.heading);
   const world = view ?? shown.world;
   const highScore = Math.max(...shown.highScores.map((e) => e.score), world.score);
@@ -59,6 +67,7 @@ function expected(cam: Camera, tick: number, state?: GameState, view?: World): R
       showAlert: false,
       blinkTick: tick,
       highScore,
+      blips: blips ?? createRadarBlips(),
     });
   } else {
     drawHorizon(d, cam, tick);
@@ -69,6 +78,7 @@ function expected(cam: Camera, tick: number, state?: GameState, view?: World): R
       showAlert: !frozenHud,
       blinkTick: tick,
       highScore,
+      blips: blips ?? createRadarBlips(),
     });
     if (shown.phase === 'attractTitle') drawTitle(d, shown.phaseTicks);
     if (shown.phase === 'gameOver') drawGameOver(d, shown.message);
@@ -81,6 +91,28 @@ function expected(cam: Camera, tick: number, state?: GameState, view?: World): R
 
   d.endFrame();
   return d.lines;
+}
+
+/**
+ * The radar blip levels the renderer will be holding once it has drawn these
+ * states: one fade-and-relight step per *simulated* tick that has gone by, capped
+ * the way the loop caps its own catch-up, and forgotten outright when the camera
+ * is snapped.  This mirrors `createRenderer`, deliberately.
+ */
+function blipsAfter(...states: GameState[]): RadarBlips {
+  const blips = createRadarBlips();
+  let lastTick = Number.NaN;
+  let lastCameraSnap = Number.NaN;
+  for (const state of states) {
+    if ((state.cameraSnap ?? 0) !== lastCameraSnap) blips.reset();
+    lastCameraSnap = state.cameraSnap ?? 0;
+    const elapsed = Number.isNaN(lastTick) ? 1 : state.world.tick - lastTick;
+    for (let i = 0; i < Math.min(Math.max(elapsed, 0), MAX_CATCHUP_TICKS); i += 1) {
+      blips.advance(state.world);
+    }
+    lastTick = state.world.tick;
+  }
+  return blips;
 }
 
 function enemyAt(x: number, z: number, heading: number, parts: Partial<Enemy> = {}): Enemy {
@@ -215,6 +247,29 @@ describe('createRenderer', () => {
     expect(afterRespawn).toEqual(expected(cam, 22, running));
   });
 
+  it('blends the last tick of motion into the crack', () => {
+    // The player is hit on a tick the world really did advance, so the step from
+    // playing to playerDead is ordinary motion and the view must not jump: only a
+    // teleport the state machine reports, or a phase that was not being played,
+    // may break the blend.
+    const alive = stateAt(20, 0, 0, 0);
+    alive.phase = 'playing';
+    alive.phaseTicks = 20;
+
+    const hit = stateAt(21, 400, 0, 0);
+    hit.phase = 'playerDead';
+    hit.phaseTicks = 0;
+
+    const d = createRecordingDisplay();
+    const renderer = createRenderer(d);
+    renderer.render(alive, 0);
+    renderer.render(hit, 0.5);
+
+    expect(d.lines).toEqual(
+      expected({ pos: { x: 200, z: 0 }, heading: 0, eyeHeight: EYE_HEIGHT_UNITS }, 21, hit),
+    );
+  });
+
   it('snaps when the demo stands its tank back up mid-phase', () => {
     // A demo death teleports the player while the phase and the ticks both run on,
     // so the only signal is the counter the state machine bumps.
@@ -234,24 +289,78 @@ describe('createRenderer', () => {
     );
   });
 
-  it('snaps rather than sliding when a phase has just begun', () => {
+  it('keeps blending across a phase change that moved no camera', () => {
+    // A phase beginning is not by itself a reason to cut: every phase that does
+    // put the player down somewhere new bumps `cameraSnap`, and one that does not
+    // - the step into the crack - is ordinary motion.
     const d = createRecordingDisplay();
     const renderer = createRenderer(d);
-    // A respawn teleports the player on a tick that looks perfectly consecutive,
-    // so only the fresh phase counter says not to blend across it.
     renderer.render(stateAt(6, 0, 0, 0), 0);
-    const respawned = stateAt(7, 9000, 9000, 2);
-    respawned.phase = 'playing';
-    respawned.phaseTicks = 0;
-    renderer.render(respawned, 0.5);
+    const next = stateAt(7, 800, 0, 0);
+    next.phase = 'playing';
+    next.phaseTicks = 0;
+    renderer.render(next, 0.5);
 
     expect(d.lines).toEqual(
-      expected(
-        { pos: { x: 9000, z: 9000 }, heading: 2, eyeHeight: EYE_HEIGHT_UNITS },
-        7,
-        respawned,
-      ),
+      expected({ pos: { x: 400, z: 0 }, heading: 0, eyeHeight: EYE_HEIGHT_UNITS }, 7, next),
     );
+  });
+
+  it('lights a blip the sweep crossed during a catch-up', () => {
+    // The loop ran three ticks before this frame, and the sweep passed the enemy
+    // on the first of them.  Only the last world is in hand, but the sweep moves
+    // a fixed step a tick, so winding it back finds the crossing.
+    const step = (RADAR_SWEEP_PER_TICK * Math.PI * 2) / HEADING_UNITS_PER_TURN;
+    const at = (tick: number, radarAngle: number): GameState => {
+      const state = stateAt(tick, 0, 0, 0);
+      state.phase = 'playing';
+      state.world.enemies = [enemyAt(0, 8000, 0)];
+      state.world.radarAngle = radarAngle;
+      return state;
+    };
+    const d = createRecordingDisplay();
+    const renderer = createRenderer(d);
+    // Dead ahead is bearing zero: one step short of it, then two steps past.
+    renderer.render(at(0, -step), 0);
+    const dark = d.lines.filter((l) => l.x0 === l.x1 && l.y0 === l.y1).length;
+    renderer.render(at(3, 2 * step), 0);
+    const lit = d.lines.filter((l) => l.x0 === l.x1 && l.y0 === l.y1);
+
+    expect(dark).toBe(0);
+    expect(lit).toHaveLength(1);
+  });
+
+  it('fades the radar blip once per simulated tick, not once per frame', () => {
+    // An enemy dead ahead with the sweep on its bearing: the blip lights, and
+    // every tick that goes by afterwards takes a step off it.  A frame that
+    // arrives after the loop caught up two ticks has to fade both of them.
+    const at = (tick: number, radarAngle: number): GameState => {
+      const state = stateAt(tick, 0, 0, 0);
+      state.phase = 'playing';
+      state.world.enemies = [enemyAt(0, 8000, 0)];
+      state.world.radarAngle = radarAngle;
+      return state;
+    };
+    // The enemy is dead ahead, so the sweep lights the blip at angle 0 and has
+    // left it behind by a quarter turn.
+    const lit = 0;
+    const gone = Math.PI / 2;
+    const blip = (lines: readonly RecordedLine[]): RecordedLine | undefined =>
+      lines.find((l) => l.x0 === l.x1 && l.y0 === l.y1);
+
+    const stepped = createRecordingDisplay();
+    const byTick = createRenderer(stepped);
+    byTick.render(at(0, lit), 0);
+    byTick.render(at(1, gone), 0);
+    byTick.render(at(2, gone), 0);
+
+    const jumped = createRecordingDisplay();
+    const caughtUp = createRenderer(jumped);
+    caughtUp.render(at(0, lit), 0);
+    caughtUp.render(at(2, gone), 0);
+
+    expect(blip(stepped.lines)).toBeDefined();
+    expect(blip(jumped.lines)).toEqual(blip(stepped.lines));
   });
 
   it('snaps rather than interpolating when the loop skips ticks', () => {
@@ -297,7 +406,7 @@ describe('createRenderer', () => {
     state.highScores = [{ initials: 'ABC', score: 25000 }];
     const d = createRecordingDisplay();
     createRenderer(d).render(state, 0);
-    expect(d.lines).toEqual(expected(CAM_AT_ORIGIN, 4, state));
+    expect(d.lines).toEqual(expected(CAM_AT_ORIGIN, 4, state, undefined, blipsAfter(state)));
     // The order matters: the HUD is drawn last so it sits over the view.
     const bare = stateAt(4, 0, 0, 0);
     bare.phase = 'playing';
@@ -362,7 +471,7 @@ describe('createRenderer', () => {
     const halfway = { ...second.world };
     halfway.enemies = [enemyAt(200, 8000, 0.5)];
     halfway.shells = [shellAt(0, 2000, 200)];
-    expect(d.lines).toEqual(expected(CAM_AT_ORIGIN, 1, second, halfway));
+    expect(d.lines).toEqual(expected(CAM_AT_ORIGIN, 1, second, halfway, blipsAfter(first, second)));
   });
 
   it('interpolates debris but only its yaw', () => {
@@ -392,11 +501,14 @@ describe('createRenderer', () => {
   it('snaps an entity that is new this tick rather than blending from nothing', () => {
     const d = createRecordingDisplay();
     const renderer = createRenderer(d);
-    renderer.render(stateAt(0, 0, 0, 0), 0);
+    const empty = stateAt(0, 0, 0, 0);
+    renderer.render(empty, 0);
     const second = stateAt(1, 0, 0, 0);
     second.world.enemies = [enemyAt(1000, 8000, 0)];
     renderer.render(second, 0.5);
-    expect(d.lines).toEqual(expected(CAM_AT_ORIGIN, 1, second));
+    expect(d.lines).toEqual(
+      expected(CAM_AT_ORIGIN, 1, second, undefined, blipsAfter(empty, second)),
+    );
   });
 
   it('snaps entity positions when the loop skips ticks', () => {
@@ -408,7 +520,7 @@ describe('createRenderer', () => {
     const later = stateAt(4, 0, 0, 0);
     later.world.enemies = [enemyAt(2000, 8000, 1)];
     renderer.render(later, 0.5);
-    expect(d.lines).toEqual(expected(CAM_AT_ORIGIN, 4, later));
+    expect(d.lines).toEqual(expected(CAM_AT_ORIGIN, 4, later, undefined, blipsAfter(first, later)));
   });
 
   it('cracks the screen while the player is dead, one group per tick', () => {
