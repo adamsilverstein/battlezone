@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { ENEMY_DISH_STEP, EYE_HEIGHT_UNITS, TANGLE_UNIT_RADIANS } from '../../src/data/constants';
+import {
+  ENEMY_DISH_STEP,
+  EYE_HEIGHT_UNITS,
+  SAUCER_DEATH_TICKS,
+  TANGLE_UNIT_RADIANS,
+} from '../../src/data/constants';
 import { DOT_MODEL_NAMES, MODELS, TREAD_FRAMES } from '../../src/data/models';
 import type { Debris, Enemy, Obstacle, Shell, World } from '../../src/game/types';
 import { createAttractWorld } from '../../src/game/world';
@@ -43,11 +48,11 @@ function modelLines(
   model: string,
   pos: { x: number; y: number; z: number },
   yaw: number,
-  opts?: { depthCue?: boolean },
+  opts?: { depthCue?: boolean; intensity?: number },
 ): RecordedLine[] {
   const d = createRecordingDisplay();
   d.beginFrame();
-  drawModel(d, CAM, MODELS[model]!, pos, { x: 0, y: yaw, z: 0 }, 1, opts);
+  drawModel(d, CAM, MODELS[model]!, pos, { x: 0, y: yaw, z: 0 }, opts?.intensity ?? 1, opts);
   d.endFrame();
   return d.lines;
 }
@@ -136,6 +141,27 @@ describe('drawWorldObjects', () => {
     // A grounded saucer is drawn somewhere else, so the height is used.
     const grounded = draw(worldWith({ enemies: [enemy({ kind: 'saucer', y: 0, heading: 0.25 })] }));
     expect(keys(near)).not.toEqual(keys(grounded));
+  });
+
+  it('fades a dying saucer by its disintegration counter', () => {
+    const dying = (timer: number): Enemy =>
+      enemy({ kind: 'saucer', y: 1200, heading: 0.25, alive: false, state: 'dying', timer });
+    // Half the counter left is half the intensity, on the same shape as a live one.
+    const half = draw(worldWith({ enemies: [dying(SAUCER_DEATH_TICKS / 2)] }));
+    expect(keys(half)).toEqual(
+      keys(
+        modelLines('saucer', { x: 0, y: 1200, z: 6000 }, 0.25, {
+          depthCue: false,
+          intensity: 0.5,
+        }),
+      ),
+    );
+
+    const level = (timer: number): number =>
+      draw(worldWith({ enemies: [dying(timer)] }))[0]!.intensity;
+    expect(level(SAUCER_DEATH_TICKS)).toBe(1);
+    expect(level(SAUCER_DEATH_TICKS)).toBeGreaterThan(level(SAUCER_DEATH_TICKS / 2));
+    expect(level(SAUCER_DEATH_TICKS / 2)).toBeGreaterThan(level(1));
   });
 
   it('draws nothing for a dead enemy', () => {

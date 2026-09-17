@@ -11,7 +11,8 @@
  *                  viewer (`$04`-`$0b`), and the spinning radar dish `$0d`;
  * * super tank   - one body, `$21`, with no treads and no dish;
  * * missile      - the body at its altitude plus a spatter object (`$24`-`$2b`);
- * * saucer       - the saucer at its hover height, without the depth cue;
+ * * saucer       - the saucer at its hover height, without the depth cue, fading
+ *                  out over its 32 disintegration ticks once it is hit;
  * * shell        - the projectile shape `$03`;
  * * debris       - the six chunks, yawing only (design spec 5.3).
  *
@@ -19,7 +20,7 @@
  * so `Debris.rot.x` and `.z` are deliberately ignored.
  */
 
-import { ENEMY_DISH_STEP, TANGLE_UNIT_RADIANS } from '../data/constants';
+import { ENEMY_DISH_STEP, SAUCER_DEATH_TICKS, TANGLE_UNIT_RADIANS } from '../data/constants';
 import { DOT_MODEL_NAMES, MODELS, TREAD_FRAMES } from '../data/models';
 import type { WireModel } from '../data/types';
 import { angleTo, wrapAngle } from '../engine/math';
@@ -60,7 +61,7 @@ function drawAt(
   pos: Vec2,
   y: number,
   heading: number,
-  opts?: { depthCue?: boolean },
+  opts?: { depthCue?: boolean; intensity?: number },
 ): void {
   drawModel(
     d,
@@ -68,9 +69,20 @@ function drawAt(
     model(name),
     { x: pos.x, y, z: pos.z },
     { x: 0, y: heading, z: 0 },
-    OBJECT_INTENSITY,
+    opts?.intensity ?? OBJECT_INTENSITY,
     opts,
   );
+}
+
+/**
+ * How brightly a disintegrating saucer is drawn.  `SCOLFG` is loaded with `$40`
+ * when the saucer is hit and decremented twice a tick, and the drawn intensity is
+ * taken straight off that counter, so the shape flares and fades over its 32 ticks
+ * (docs/reference/atari-source-notes.md, "The saucer").  `Enemy.timer` is that
+ * counter in ticks, so the level is simply how much of it is left.
+ */
+function dyingSaucerIntensity(saucer: Enemy): number {
+  return (OBJECT_INTENSITY * Math.max(saucer.timer, 0)) / SAUCER_DEATH_TICKS;
 }
 
 /**
@@ -111,7 +123,10 @@ function drawEnemy(d: VectorDisplay, cam: Camera, unit: Enemy, tick: number): vo
   if (unit.kind === 'saucer') {
     // SINT, not DQUE: the saucer keeps its brightness however far away it is
     // (docs/reference/atari-source-notes.md, "Depth cueing and clipping").
-    drawAt(d, cam, 'saucer', unit.pos, unit.y, unit.heading, { depthCue: false });
+    drawAt(d, cam, 'saucer', unit.pos, unit.y, unit.heading, {
+      depthCue: false,
+      intensity: unit.alive ? OBJECT_INTENSITY : dyingSaucerIntensity(unit),
+    });
     return;
   }
   drawAt(d, cam, 'tank', unit.pos, unit.y, unit.heading);
@@ -135,7 +150,10 @@ export function drawWorldObjects(d: VectorDisplay, cam: Camera, world: World): v
     drawAt(d, cam, obstacle.kind, obstacle.pos, 0, obstacle.heading);
   }
   for (const unit of world.enemies) {
-    if (unit.alive) drawEnemy(d, cam, unit, world.tick);
+    // A shot saucer stays on the field with `alive` false while `SCOLFG` runs
+    // down, and the ROM keeps drawing it for exactly that long; everything else
+    // that dies is off the list already and represented by its debris.
+    if (unit.alive || unit.state === 'dying') drawEnemy(d, cam, unit, world.tick);
   }
   for (const shell of world.shells) drawShell(d, cam, shell);
   for (const piece of world.debris) drawDebris(d, cam, piece);
