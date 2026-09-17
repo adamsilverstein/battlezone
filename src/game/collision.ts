@@ -213,7 +213,8 @@ export function isEnemyInRange(world: World): boolean {
  */
 export function isTargetInSights(world: World): boolean {
   const unit = nearestEnemyUnit(world);
-  if (unit === null || !isEnemyInRange(world)) return false;
+  if (unit === null) return false;
+  if (octagonalDistance(world.player.pos, unit.pos) >= ENEMY_IN_RANGE_UNITS) return false;
   return (
     Math.abs(wrapAngle(bearingTo(world.player.pos, unit.pos) - world.player.heading)) <
     RETICLE_LOCK_RADIANS

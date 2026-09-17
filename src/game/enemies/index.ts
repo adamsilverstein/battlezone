@@ -231,6 +231,10 @@ export function updateEnemies(world: World, _input: InputState, rng: Rng): GameE
     }
   }
 
+  // A missile that rams the player destroys itself, so sweep up anything that died
+  // during its own update; only the saucer stays on to be faded out.
+  world.enemies = world.enemies.filter((enemy) => enemy.alive || enemy.kind === 'saucer');
+
   events.push(...updateSaucer(world, rng));
   events.push(...resolveShellHits(world, rng));
   updateDebris(world);

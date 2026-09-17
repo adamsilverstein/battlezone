@@ -128,7 +128,11 @@ function reactionTicks(world: World): number {
   return clamp(patience, ENEMY_ACTION_EXPERT, ENEMY_ACTION_SKILL_BASE * ENEMY_ACTION_SKILL_SCALE);
 }
 
-/** `SKILL`: the heading error the tank settles for before it starts creeping. */
+/**
+ * `SKILL`: the heading error the tank settles for before it starts creeping.  The
+ * ROM's floor is two heading units, which is the same number as the firing window -
+ * a tank that has lined up as far as it ever will is also lined up enough to shoot.
+ */
 function aimTolerance(world: World): number {
   const units = clamp(
     ENEMY_AIM_TOLERANCE_MAX - ENEMY_AIM_TOLERANCE_PER_SKILL * skillOf(world),

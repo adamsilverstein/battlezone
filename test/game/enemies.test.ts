@@ -248,6 +248,20 @@ describe('updateEnemies', () => {
 });
 
 describe('the enemy systems in the world', () => {
+  it('sweeps up a missile that destroyed itself on the player', () => {
+    const world = makeWorld();
+    const missile = target('missile');
+    missile.pos = { x: 0, z: 700 };
+    missile.heading = Math.PI;
+    world.enemies = [missile];
+
+    const events = updateEnemies(world, NEUTRAL_INPUT, createRng(1));
+
+    expect(events).toContainEqual<GameEvent>({ type: 'playerDestroyed', by: 'missile' });
+    expect(world.enemies).toEqual([]);
+    expect(world.debris.length).toBeGreaterThan(0);
+  });
+
   it('keeps one unit on the field, and never two', () => {
     const { liveUnits, events } = play(400);
     expect(Math.max(...liveUnits)).toBe(1);
