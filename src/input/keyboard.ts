@@ -40,6 +40,10 @@ function isMapped(code: string): boolean {
  * frame. `read` is the only consumer of that latch, so it clears it, which makes
  * it the one method here that is not a pure lookup.
  *
+ * A latched tap is a weaker order than a key that is really down, though: it
+ * drives a tread only where nothing held is driving it, so a stray brush of an
+ * opposing key cannot cancel the stick the player is holding.
+ *
  * A mapped key's default action is cancelled: Space and the arrows would otherwise
  * scroll the page out from under the display.
  */
@@ -74,14 +78,28 @@ export function createKeyboard(target: EventTarget): { read(): RawInput; dispose
       const active = new Set([...heldCodes, ...tapped]);
       tappedCodes.clear();
 
+      // Held keys are the tank's real orders; a key that has already been let go
+      // of is a ghost, and only fills a tread the held keys are not driving. The
+      // two are kept apart because they cancel: brushing the left arrow while the
+      // right one is held sums to nothing, and the tank would stop dead for a
+      // tick on a key the player never meant to hold.
       let leftTread = 0;
       let rightTread = 0;
+      let ghostLeft = 0;
+      let ghostRight = 0;
       for (const code of active) {
         const tread = TREAD_KEYS[code];
         if (tread === undefined) continue;
-        leftTread += tread.leftTread;
-        rightTread += tread.rightTread;
+        if (heldCodes.has(code)) {
+          leftTread += tread.leftTread;
+          rightTread += tread.rightTread;
+        } else {
+          ghostLeft += tread.leftTread;
+          ghostRight += tread.rightTread;
+        }
       }
+      if (leftTread === 0) leftTread = ghostLeft;
+      if (rightTread === 0) rightTread = ghostRight;
       return {
         leftTread: clampTread(leftTread),
         rightTread: clampTread(rightTread),

@@ -99,13 +99,27 @@ async function expectPhase(page: Page, wanted: string): Promise<void> {
   await expect.poll(async () => phase(page), { timeout: PHASE_TIMEOUT }).toBe(wanted);
 }
 
+/**
+ * The one console error this suite does not fail on.
+ *
+ * A browser logs it when the audio device or the WebAudio renderer gives up
+ * underneath the page - a headless runner with no output device is a good way to
+ * provoke it - and the game answers it by building a fresh context on the next
+ * gesture rather than by going quiet. It is a condition the game handles, so it
+ * is not a reason to fail the build; that the game keeps playing through it is
+ * asserted below either way.
+ */
+const HANDLED_ERROR = /AudioContext encountered an error/i;
+
 test.describe('the built game', () => {
   let errors: string[];
 
   test.beforeEach(async ({ page }) => {
     errors = [];
     page.on('console', (message) => {
-      if (message.type() === 'error') errors.push(message.text());
+      if (message.type() === 'error' && !HANDLED_ERROR.test(message.text())) {
+        errors.push(message.text());
+      }
     });
     page.on('pageerror', (error) => errors.push(String(error)));
     await watchAudioContexts(page);

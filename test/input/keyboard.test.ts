@@ -59,6 +59,31 @@ describe('createKeyboard', () => {
     expect(keyboard.read()).toMatchObject({ start: false, leftTread: 0 });
   });
 
+  it('does not let a brushed key cancel the stick that is really held', () => {
+    // The player is pivoting right and brushes the left arrow, which is up again
+    // before the next poll. Summing the two would read as neutral and stop the
+    // tank dead for a tick on an order nobody gave.
+    const target = new EventTarget();
+    const keyboard = keyboardOn(target);
+    down(target, 'ArrowRight');
+    down(target, 'ArrowLeft');
+    up(target, 'ArrowLeft');
+    expect(keyboard.read()).toMatchObject({ leftTread: 1, rightTread: -1 });
+    expect(keyboard.read()).toMatchObject({ leftTread: 1, rightTread: -1 });
+  });
+
+  it('still lets a brushed key drive a tread nothing held is driving', () => {
+    // Holding W drives the left tread only, so a brush of the up arrow is the
+    // only order the right tread has and it counts.
+    const target = new EventTarget();
+    const keyboard = keyboardOn(target);
+    down(target, 'KeyW');
+    down(target, 'ArrowUp');
+    up(target, 'ArrowUp');
+    expect(keyboard.read()).toMatchObject({ leftTread: 1, rightTread: 1 });
+    expect(keyboard.read()).toMatchObject({ leftTread: 1, rightTread: 0 });
+  });
+
   it('keeps reporting a key that is still down after a tap of the same key', () => {
     const target = new EventTarget();
     const keyboard = keyboardOn(target);

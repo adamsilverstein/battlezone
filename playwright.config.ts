@@ -37,7 +37,11 @@ export default defineConfig({
   webServer: {
     command: `npm run build:e2e && npm run preview -- --port ${PORT} --strictPort`,
     url: `http://localhost:${PORT}/`,
-    reuseExistingServer: !process.env.CI,
+    // Always a fresh server, even locally: the suite needs the `--mode test`
+    // build for its `window.__battlezone` hook, and adopting whatever happens to
+    // be on the port - an ordinary `npm run preview`, say - fails much further
+    // down, as a missing hook rather than as the wrong server.
+    reuseExistingServer: false,
     timeout: 180_000,
   },
 });
