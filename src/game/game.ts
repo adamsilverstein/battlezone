@@ -68,6 +68,7 @@ import type {
   GameState,
   HighScoreEntry,
   Rng,
+  Vec2,
   World,
 } from './types';
 import { enemyBrain } from './worldState';
@@ -87,7 +88,7 @@ export const HIGH_SCORE_ENTRY_TICKS = INITIALS_TIMEOUT_TIMOUT * TICKS_PER_TIMOUT
 /** `GAME OVER`, the one overlay the state machine names. */
 const GAME_OVER_MESSAGE = 'GAME OVER';
 
-/** How many spots the respawn tries before it settles for the last one. */
+/** How many spots the respawn tries before it settles for the start of a life. */
 const RESPAWN_TRIES = 16;
 
 /**
@@ -179,12 +180,22 @@ export function createGame(opts: { rng: Rng; highScores: HighScoreEntry[] }): Ga
     enter('playing');
   }
 
+  /** Whether a respawn may use this spot: no obstacle on it, no enemy against it. */
+  function spotIsClear(spot: Vec2): boolean {
+    const { world } = state;
+    if (circleHitsObstacle(spot, PLAYER_OBSTACLE_RADIUS, world.obstacles)) return false;
+    return !world.enemies.some(
+      (enemy) => enemy.alive && octagonalDistance(spot, enemy.pos) < RESPAWN_CLEARANCE,
+    );
+  }
+
   /**
    * `RespawnPlayer`: a random spot that touches no obstacle and is clear of the
    * enemy, and a random facing.  The ROM re-rolls until the spot is free; this
-   * gives up after `RESPAWN_TRIES` and takes what it has, which cannot loop
-   * forever on a crowded field.  The ROM also masks the Z coordinate's high byte
-   * to `$3F` - the disassembly flags that as unexplained, so it is not copied.
+   * gives up after `RESPAWN_TRIES` and leaves the player where `resetPlayer` put
+   * them, so a crowded field cannot spin here forever.  The ROM also masks the Z
+   * coordinate's high byte to `$3F` - the disassembly flags that as unexplained,
+   * so it is not copied.
    */
   function respawnPlayer(): void {
     const { world } = state;
@@ -195,12 +206,9 @@ export function createGame(opts: { rng: Rng; highScores: HighScoreEntry[] }): Ga
         x: wrapCoordinate(rng.int(WORLD_SIZE)),
         z: wrapCoordinate(rng.int(WORLD_SIZE)),
       };
+      if (!spotIsClear(spot)) continue;
       world.player.pos = spot;
-      const blocked = circleHitsObstacle(spot, PLAYER_OBSTACLE_RADIUS, world.obstacles);
-      const crowded = world.enemies.some(
-        (enemy) => enemy.alive && octagonalDistance(spot, enemy.pos) < RESPAWN_CLEARANCE,
-      );
-      if (!blocked && !crowded) break;
+      break;
     }
     world.player.heading = rng.next() * TAU;
 
