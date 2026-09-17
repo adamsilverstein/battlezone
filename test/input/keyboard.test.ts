@@ -25,7 +25,14 @@ afterEach(() => {
 describe('createKeyboard', () => {
   it('reads neutral before any key is touched', () => {
     const keyboard = keyboardOn(new EventTarget());
-    expect(keyboard.read()).toEqual({ leftTread: 0, rightTread: 0, fire: false, start: false });
+    expect(keyboard.read()).toEqual({
+      leftTread: 0,
+      rightTread: 0,
+      fire: false,
+      start: false,
+      firePressed: false,
+      startPressed: false,
+    });
   });
 
   it('holds a tap that begins and ends between two reads', () => {
@@ -133,7 +140,14 @@ describe('createKeyboard', () => {
     const target = new EventTarget();
     const keyboard = keyboardOn(target);
     down(target, 'KeyQ');
-    expect(keyboard.read()).toEqual({ leftTread: 0, rightTread: 0, fire: false, start: false });
+    expect(keyboard.read()).toEqual({
+      leftTread: 0,
+      rightTread: 0,
+      fire: false,
+      start: false,
+      firePressed: false,
+      startPressed: false,
+    });
   });
 
   it('cancels a mapped key so the page cannot scroll under the display', () => {
@@ -162,7 +176,14 @@ describe('createKeyboard', () => {
     const keyboard = createKeyboard(target);
     down(target, 'KeyW');
     keyboard.dispose();
-    expect(keyboard.read()).toEqual({ leftTread: 0, rightTread: 0, fire: false, start: false });
+    expect(keyboard.read()).toEqual({
+      leftTread: 0,
+      rightTread: 0,
+      fire: false,
+      start: false,
+      firePressed: false,
+      startPressed: false,
+    });
     down(target, 'KeyS');
     expect(keyboard.read()).toMatchObject({ leftTread: 0 });
   });

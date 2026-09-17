@@ -11,7 +11,14 @@ describe('readGamepad', () => {
 
   it('maps axis 1 to the left tread and axis 3 to the right tread, inverting Y', () => {
     const raw = readGamepad([fakePad({ axes: [0, -1, 0, 1] })]);
-    expect(raw).toEqual({ leftTread: 1, rightTread: -1, fire: false, start: false });
+    expect(raw).toEqual({
+      leftTread: 1,
+      rightTread: -1,
+      fire: false,
+      start: false,
+      firePressed: false,
+      startPressed: false,
+    });
   });
 
   it('keeps stick values analogue so quantisation stays a separate step', () => {
@@ -72,7 +79,14 @@ describe('readGamepad', () => {
 
   it('falls back to the first connected pad when every pad is idle', () => {
     const raw = readGamepad([null, fakePad({ index: 1 }), fakePad({ index: 2 })]);
-    expect(raw).toEqual({ leftTread: 0, rightTread: 0, fire: false, start: false });
+    expect(raw).toEqual({
+      leftTread: 0,
+      rightTread: 0,
+      fire: false,
+      start: false,
+      firePressed: false,
+      startPressed: false,
+    });
   });
 
   it('honours a caller-supplied dead zone', () => {
@@ -84,23 +98,34 @@ describe('readGamepad', () => {
     expect(readGamepad([small, large], { deadZone: 0.1 })?.leftTread).toBeCloseTo(0.2);
   });
 
-  it('prefers a standard-layout pad over one the browser could not map', () => {
+  it('prefers a standard layout when both pads are sitting idle', () => {
+    // Nothing is being touched on either, so the only thing to go on is which
+    // layout the browser could resolve.
+    const odd = fakePad({ mapping: '' as GamepadMappingType, axes: [0, 0, 0, 0] });
+    const standard = fakePad();
+    expect(readGamepad([odd, standard])).toEqual(readGamepad([standard]));
+  });
+
+  it('prefers a standard layout when both pads are being used', () => {
     const odd = fakePad({ mapping: '' as GamepadMappingType, axes: [0, -1] });
     const standard = fakePad({ axes: [0, 0, 0, -1] });
-    // Both are idle, so the layout decides.
     expect(readGamepad([odd, standard])).toEqual(readGamepad([standard]));
   });
 
   it('reads a non-standard pad rather than ignoring it', () => {
     // A pad the browser cannot map still reports axes and buttons, and being the
-    // only one plugged in it is the one in the player's hands.
+    // only one plugged in it is the one in the player's hands. Skipping it would
+    // leave that player with no controls at all.
     const odd = fakePad({ mapping: '' as GamepadMappingType, axes: [0, -1], buttons: pressed(0) });
     expect(readGamepad([odd])).toMatchObject({ leftTread: 1, fire: true });
   });
 
-  it('takes the pad in use even when a standard one sits idle', () => {
-    const idle = fakePad();
-    const busy = fakePad({ mapping: '' as GamepadMappingType, buttons: pressed(0) });
-    expect(readGamepad([idle, busy])?.fire).toBe(true);
+  it('takes the pad in use over an idle one, whatever the layouts are', () => {
+    // Which wins when the two rules disagree: the pad being moved, because an
+    // untouched pad in another slot is not what the player is holding.
+    const idleStandard = fakePad();
+    const busyOdd = fakePad({ mapping: '' as GamepadMappingType, buttons: pressed(0) });
+    expect(readGamepad([idleStandard, busyOdd])?.fire).toBe(true);
+    expect(readGamepad([busyOdd, idleStandard])?.fire).toBe(true);
   });
 });

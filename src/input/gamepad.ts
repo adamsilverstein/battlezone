@@ -17,7 +17,26 @@ export interface RawInput {
   fire: boolean;
   /** Start (1-player) held. */
   start: boolean;
+  /**
+   * Fire went down since the last read, even if it is already up again.  The
+   * game is polled once a tick, every 64 ms, and a tap is shorter than that, so
+   * each source latches its own press transitions rather than leaving the tick
+   * to notice a button that is no longer held.
+   */
+  firePressed: boolean;
+  /** Start went down since the last read. */
+  startPressed: boolean;
 }
+
+/** Nothing touched: what a source with no pad and no keys to report reads as. */
+export const NEUTRAL_RAW: RawInput = Object.freeze({
+  leftTread: 0,
+  rightTread: 0,
+  fire: false,
+  start: false,
+  firePressed: false,
+  startPressed: false,
+});
 
 /** Default stick travel treated as neutral, wide enough to swallow worn-stick drift. */
 export const DEAD_ZONE = 0.3;
@@ -78,6 +97,11 @@ function readDpad(pad: Gamepad): { leftTread: number; rightTread: number } {
   return { leftTread, rightTread };
 }
 
+/**
+ * One pad's current state.  The press flags are false: a single stateless read
+ * has no previous state to compare against, so transitions are
+ * `createGamepadReader`'s business.
+ */
 function readPad(pad: Gamepad): RawInput {
   const dpad = readDpad(pad);
   return {
@@ -85,6 +109,8 @@ function readPad(pad: Gamepad): RawInput {
     rightTread: clampTread(-axis(pad, AXIS_RIGHT_Y) + dpad.rightTread),
     fire: BUTTON_FIRE.some((index) => held(pad, index)),
     start: held(pad, BUTTON_START),
+    firePressed: false,
+    startPressed: false,
   };
 }
 
@@ -140,4 +166,57 @@ export function readGamepad(
     }
   }
   return best;
+}
+
+/**
+ * The Gamepad API is poll-only: there are no button events, so a tap that begins
+ * and ends between two of the simulation's 64 ms polls is invisible to them, in
+ * exactly the way a keyboard tap was before `createKeyboard` latched it.
+ *
+ * This reader closes that gap by being sampled far more often than the game is
+ * polled - `main.ts` calls `sample` once per animation frame - and latching every
+ * button that goes down until the next `read`.  `read` then reports the tap as one
+ * held frame with its press flag set, and clears the latch, so a tap produces
+ * exactly one press however many frames it spanned.
+ */
+export function createGamepadReader(
+  getGamepads: () => readonly (Gamepad | null)[],
+  opts: { deadZone?: number } = {},
+): { sample(): void; read(): RawInput | null } {
+  let heldFire = false;
+  let heldStart = false;
+  let tappedFire = false;
+  let tappedStart = false;
+
+  /** Reads the pads and notes any button that has just gone down. */
+  function latch(): RawInput | null {
+    const raw = readGamepad(getGamepads(), opts);
+    const fire = raw?.fire ?? false;
+    const start = raw?.start ?? false;
+    if (fire && !heldFire) tappedFire = true;
+    if (start && !heldStart) tappedStart = true;
+    heldFire = fire;
+    heldStart = start;
+    return raw;
+  }
+
+  return {
+    sample: () => void latch(),
+    read(): RawInput | null {
+      const raw = latch();
+      // Nothing plugged in and nothing latched: no pad to report at all, which is
+      // what lets the keyboard stand alone.
+      if (raw === null && !tappedFire && !tappedStart) return null;
+      const merged: RawInput = {
+        ...(raw ?? NEUTRAL_RAW),
+        fire: (raw?.fire ?? false) || tappedFire,
+        start: (raw?.start ?? false) || tappedStart,
+        firePressed: tappedFire,
+        startPressed: tappedStart,
+      };
+      tappedFire = false;
+      tappedStart = false;
+      return merged;
+    },
+  };
 }

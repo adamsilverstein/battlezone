@@ -66,7 +66,8 @@ export function createKeyboard(target: EventTarget): { read(): RawInput; dispose
 
   return {
     read(): RawInput {
-      const active = new Set([...heldCodes, ...tappedCodes]);
+      const tapped = new Set(tappedCodes);
+      const active = new Set([...heldCodes, ...tapped]);
       tappedCodes.clear();
 
       let leftTread = 0;
@@ -82,6 +83,10 @@ export function createKeyboard(target: EventTarget): { read(): RawInput; dispose
         rightTread: clampTread(rightTread),
         fire: active.has(FIRE_KEY),
         start: active.has(START_KEY),
+        // The press edge this source saw for itself: a key that went down since
+        // the last read, whether or not it is still held.
+        firePressed: tapped.has(FIRE_KEY),
+        startPressed: tapped.has(START_KEY),
       };
     },
     dispose(): void {

@@ -20,6 +20,9 @@
  * * Browsers will not start an `AudioContext` until the user has done something, so
  *   a key or a click unlocks it; the ROM had no such problem.  A gesture can be
  *   refused, so the listeners stay on until the context actually reports running.
+ * * The cabinet read its switches at leisure; a browser hands keys over as events
+ *   and pads only when asked.  Both are sampled per frame and latched, so a tap
+ *   shorter than the 64 ms tick still reaches the game.
  */
 
 import { createAudioSystem } from './audio';
@@ -130,35 +133,29 @@ const loop = createLoop({
       saveHighScores(storage, savedScores);
     }
   },
-  render: (alpha) => renderer.render(game.state, alpha),
+  render: (alpha) => {
+    // The Gamepad API has no button events, so the pads are looked at once a
+    // frame and any press is latched for the next poll; a tap on fire is far
+    // shorter than the 64 ms between polls.
+    input.sample();
+    renderer.render(game.state, alpha);
+  },
 });
 
 loop.start();
 
-// A read-only window onto the state machine for the browser smoke test and for
-// playing a build through by hand, in development and test builds only.  Nothing
-// here can change the game: the ROM had no such door and neither does the
-// production bundle.
+// A read-only window onto the state machine for the browser smoke test, in
+// development and test builds only: which display the game is on, and whether the
+// simulation is still running.  Nothing here can change the game, and the
+// production bundle has none of it.
 if (import.meta.env.DEV || import.meta.env.MODE === 'test') {
   Object.defineProperty(window, '__battlezone', {
     value: {
       get phase() {
         return game.state.phase;
       },
-      get score() {
-        return game.state.world.score;
-      },
-      get lives() {
-        return game.state.world.lives;
-      },
       get tick() {
         return game.state.world.tick;
-      },
-      get enemyInRange() {
-        return game.state.world.enemyInRange;
-      },
-      get targetInSights() {
-        return game.state.world.targetInSights;
       },
     },
   });
