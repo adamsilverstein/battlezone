@@ -6,7 +6,7 @@ import {
   MISSILE_LEVITATE_TOP,
   MISSILE_SPEED_MULTIPLIER,
   MISSILE_START_HEIGHT,
-  MISSILE_SWOOP_BCD_BIAS,
+  MISSILE_SWOOP_TDIST_MIN,
   MISSILE_WEAVE_SIGN_TICKS,
   MOVE_STEP_UNITS,
   OBSTACLE_TANK_RADIUS,
@@ -17,14 +17,17 @@ import {
 } from '../../src/data/constants';
 import { TAU, wrapAngle } from '../../src/engine/math';
 import { createRng } from '../../src/engine/rng';
-import { updateMissile } from '../../src/game/enemies/missile';
+import { straightInDistance, updateMissile } from '../../src/game/enemies/missile';
 import type { Enemy, GameEvent, Obstacle, World } from '../../src/game/types';
 import { enemyBrain, internalState } from '../../src/game/worldState';
 import { makeWorld } from './fixtures';
 
-/** How far out the missile stops weaving and drives straight in, in world units. */
-const STRAIGHT_IN_UNITS =
-  (DEFAULT_OPTIONS.missileThreshold / SCORE_UNIT + MISSILE_SWOOP_BCD_BIAS) * TDIST_UNIT;
+/**
+ * How far out the missile gives up weaving on a fresh game, in world units.  On the
+ * default 10000 missile threshold that is `TDIST` 10 + 25 = 35, read straight off
+ * the ROM's BCD tables rather than recomputed from them here.
+ */
+const STRAIGHT_IN_UNITS = 35 * TDIST_UNIT;
 
 /** A missile inbound down the +Z axis at the player at the origin. */
 function inbound(options: { z?: number; y?: number; heading?: number } = {}) {
@@ -53,6 +56,26 @@ function run(world: World, enemy: Enemy, ticks: number, seed = 1): GameEvent[] {
   }
   return events;
 }
+
+describe('straightInDistance', () => {
+  it('reads the swoop bias as the BCD 25000 points it is, not as 37', () => {
+    const world = makeWorld();
+    expect(straightInDistance(world)).toBe(STRAIGHT_IN_UNITS);
+    expect(straightInDistance(world)).toBe(8960);
+  });
+
+  it('shrinks to the floor by the time the score reaches the threshold plus 25000', () => {
+    const world = makeWorld();
+    world.score = DEFAULT_OPTIONS.missileThreshold + 25 * SCORE_UNIT;
+    expect(straightInDistance(world)).toBe(MISSILE_SWOOP_TDIST_MIN * TDIST_UNIT);
+
+    // And it is still above the floor just before that: a mid-game missile drives
+    // straight in from further out than a late-game one.
+    world.score = DEFAULT_OPTIONS.missileThreshold;
+    expect(straightInDistance(world)).toBeGreaterThan(MISSILE_SWOOP_TDIST_MIN * TDIST_UNIT);
+    expect(straightInDistance(world)).toBeLessThan(STRAIGHT_IN_UNITS);
+  });
+});
 
 describe('updateMissile', () => {
   it('drives straight in at four times the player step once it is close', () => {

@@ -39,6 +39,19 @@ export function pointsFor(kind: EnemyKind): number {
   return POINTS[kind];
 }
 
+/**
+ * Reads a packed BCD byte as the decimal number a player would see: `0x25` is
+ * twenty-five, not thirty-seven.
+ *
+ * The ROM's score arithmetic runs in decimal mode (`SED`/`ADC`, BZONE.MAC.txt:
+ * 4607-4637), so every score-shaped table byte - `BONTBL`, `MISLVL`, the missile's
+ * `$25` swoop bias - is BCD, and any of them compared against a score in this
+ * recreation has to come through here first.
+ */
+export function bcdToDecimal(byte: number): number {
+  return (byte >> 4) * 10 + (byte & 0x0f);
+}
+
 /** The award after `threshold`: the super bonus, then nothing ever again. */
 function bonusAfter(threshold: number): number | null {
   return threshold < SUPER_BONUS_SCORE ? SUPER_BONUS_SCORE : null;

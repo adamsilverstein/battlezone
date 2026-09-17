@@ -57,6 +57,7 @@ import {
 import { wrapAngle } from '../../engine/math';
 import { bearingTo, missileHitsObstacle, octagonalDistance, wrapCoordinate } from '../collision';
 import { spawnExplosion } from '../explosions';
+import { bcdToDecimal } from '../score';
 import type { Enemy, GameEvent, Rng, World } from '../types';
 import { ageEnemy, enemyBrain, internalState, type EnemyBrain } from '../worldState';
 
@@ -67,13 +68,20 @@ const APPROACH_CONE_RADIANS = MISSILE_APPROACH_CONE_HEADING * TANGLE_UNIT_RADIAN
 const GOAL_STEP_RADIANS = MISSILE_GOAL_STEPS * TANGLE_UNIT_RADIANS;
 const GOAL_FINE_RADIANS = MISSILE_GOAL_FINE_STEPS * TANGLE_UNIT_RADIANS;
 
-/** How near the missile has to be before it gives up swerving, in world units. */
-function straightInDistance(world: World): number {
+/**
+ * How near the missile has to be before it gives up swerving, in world units.
+ *
+ * `MISLVL + $25` and the score are all BCD in units of 1000, so the bias is
+ * twenty-five thousand points, not thirty-seven: on the default 10000 missile
+ * threshold a missile stops swerving at `TDIST` 35 and the floor at
+ * `MISSILE_SWOOP_TDIST_MIN` arrives as the score approaches 35000.
+ */
+export function straightInDistance(world: World): number {
   const scoreUnits = Math.floor(world.score / SCORE_UNIT);
   const missileLevel = DEFAULT_OPTIONS.missileThreshold / SCORE_UNIT;
   const tdist = Math.max(
     MISSILE_SWOOP_TDIST_MIN,
-    missileLevel + MISSILE_SWOOP_BCD_BIAS - scoreUnits,
+    missileLevel + bcdToDecimal(MISSILE_SWOOP_BCD_BIAS) - scoreUnits,
   );
   return tdist * TDIST_UNIT;
 }
