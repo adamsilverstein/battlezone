@@ -57,11 +57,10 @@ function expected(cam: Camera, tick: number, state?: GameState, view?: World): R
     if (shown.phase === 'attractTitle') drawTitle(d, shown.phaseTicks);
     if (shown.phase === 'gameOver') drawGameOver(d, shown.message);
     if (shown.phase === 'playerDead') drawCrack(d, Math.min(shown.phaseTicks / CRACK_GROUPS, 1));
-  }
-
-  if (!inPlay) {
-    drawCopyright(d);
-    drawPressStart(d, shown.phaseTicks);
+    if (!inPlay) {
+      drawCopyright(d);
+      drawPressStart(d, shown.phaseTicks);
+    }
   }
 
   d.endFrame();

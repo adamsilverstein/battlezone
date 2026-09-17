@@ -198,14 +198,15 @@ export function createRenderer(d: VectorDisplay): {
         if (state.phase === 'attractTitle') drawTitle(d, state.phaseTicks);
         if (state.phase === 'gameOver') drawGameOver(d, state.message);
         if (state.phase === 'playerDead') drawCrack(d, crackProgress(state.phaseTicks));
-      }
-
-      // Drawn on every display but a game in progress: the copyright line the ROM
-      // emits whenever it is not playing, and the invitation to play.  The phase
-      // counter drives the flash because the world stands still on some of them.
-      if (!inPlay) {
-        drawCopyright(d);
-        drawPressStart(d, state.phaseTicks);
+        // The copyright line and the invitation to play belong to the play area,
+        // which the table and the editor replace outright - and the ROM's
+        // positions for them sit right on top of the table's last row.  The phase
+        // counter drives the flash, because the world stands still on some of
+        // these displays.
+        if (!inPlay) {
+          drawCopyright(d);
+          drawPressStart(d, state.phaseTicks);
+        }
       }
 
       d.endFrame();
