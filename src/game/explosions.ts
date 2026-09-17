@@ -41,6 +41,7 @@ import {
 import { wrapAngle } from '../engine/math';
 import { wrapCoordinate } from './collision';
 import type { Debris, Enemy, EnemyKind, Rng, World } from './types';
+import { internalState } from './worldState';
 
 /**
  * Which model each of the six chunks uses.  Chunk 3 is the one `IZVEL` throws
@@ -116,15 +117,23 @@ const CHUNKS = DEBRIS_VELOCITY_X.slice(0, DEBRIS_PIECES).map((x, piece) => ({
     TANGLE_UNIT_RADIANS,
 }));
 
-/** Scatters a dead unit into its six chunks. */
+/**
+ * Scatters a dead unit into its six chunks.  For a tank, supertank or missile this
+ * also books the tick the next unit may arrive on - the one its highest chunk lands
+ * - because in the original the replacement appears the instant that chunk touches
+ * down, with no gap at all.  The saucer is outside that rule and does not book
+ * anything.
+ */
 export function spawnExplosion(world: World, enemy: Enemy, rng: Rng): void {
   const models = CHUNK_MODELS[enemy.kind];
   const scale = SPRAY_SCALE[enemy.kind];
+  let longest = 0;
 
   for (const [piece, chunk] of CHUNKS.entries()) {
     // IZVEL is the whole part of the vertical velocity and the low byte under it
     // is random, which is what makes two explosions of the same tank differ.
     const velocityY = (chunk.lift + rng.int(256) / 256) * scale;
+    const ticksLeft = flightTicks(enemy.y, velocityY);
     world.debris.push({
       model: models[piece]!,
       pos: { ...enemy.pos },
@@ -133,9 +142,12 @@ export function spawnExplosion(world: World, enemy: Enemy, rng: Rng): void {
       // A random starting orientation, and yaw only: no chunk ever tilts.
       rot: { x: 0, y: rng.int(HEADING_UNITS_PER_TURN) * TANGLE_UNIT_RADIANS, z: 0 },
       spin: { x: 0, y: chunk.spin, z: 0 },
-      ticksLeft: flightTicks(enemy.y, velocityY),
+      ticksLeft,
     });
+    longest = Math.max(longest, ticksLeft);
   }
+
+  if (enemy.kind !== 'saucer') internalState(world).nextUnitAt = world.tick + longest;
 }
 
 /** Flies every chunk one tick and takes the ones that have landed off the field. */
@@ -155,9 +167,4 @@ export function updateDebris(world: World): void {
   }
 
   world.debris = flying;
-}
-
-/** Whether an explosion is still in the air; the next enemy waits for this. */
-export function explosionInProgress(world: World): boolean {
-  return world.debris.length > 0;
 }

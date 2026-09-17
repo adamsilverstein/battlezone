@@ -114,7 +114,7 @@ function ram(world: World, enemy: Enemy, rng: Rng): GameEvent[] {
   enemy.alive = false;
   state.playerDeaths += 1;
   // "So we don't missile-spam the poor player" (BZONE.MAC.txt:5249-5255).
-  state.forceTankNext = true;
+  state.nextUnitOverride = 'tank';
   spawnExplosion(world, enemy, rng);
   return [{ type: 'playerDestroyed', by: 'missile' }];
 }

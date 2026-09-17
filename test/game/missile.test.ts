@@ -170,7 +170,7 @@ describe('updateMissile', () => {
     expect(events.some((event) => event.type === 'enemyDestroyed')).toBe(false);
     expect(internalState(world).playerDeaths).toBe(1);
     // The next unit is a tank, "so we don't missile-spam the poor player".
-    expect(internalState(world).forceTankNext).toBe(true);
+    expect(internalState(world).nextUnitOverride).toBe('tank');
   });
 
   it('leaves a dead player alone', () => {

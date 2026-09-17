@@ -31,10 +31,19 @@ interface InternalState {
   missilesLaunched: number;
   /** `HITS+2`: how many times the enemy has killed the player - its own score. */
   playerDeaths: number;
-  /** Set after a missile kill, "so we don't missile-spam the poor player". */
-  forceTankNext: boolean;
+  /**
+   * A forced choice for the next unit, overriding the ladder's coin flip: a tank
+   * after a missile kill or a player death, "so we don't missile-spam the poor
+   * player", and a missile when the player has stalled a tank out.
+   */
+  nextUnitOverride: 'tank' | 'missile' | null;
   /** `STIMER`: ticks until the next saucer arrives. */
   saucerTimer: number;
+  /**
+   * The tick the next enemy unit may appear on: the one the last chunk of the
+   * previous unit's explosion lands, so there is no gap between enemies.
+   */
+  nextUnitAt: number;
 }
 
 /** One enemy unit's steering and timers. */
@@ -43,6 +52,8 @@ export interface EnemyBrain {
   goal: number;
   /** `FTIMER`: ticks since the unit appeared, saturating at `ENEMY_FTIMER_MAX`. */
   ftimer: number;
+  /** Ticks since the unit appeared, not saturating: the spawner's stall timer. */
+  aliveTicks: number;
   /** Which way it swings while backing out of a collision. */
   retreatTurn: 1 | -1;
   /** `OBJCOL+2`: the missile is touching an obstacle, so it levitates. */
@@ -70,8 +81,9 @@ export function internalState(world: World): InternalState {
     nextEnemyId: 1,
     missilesLaunched: 0,
     playerDeaths: 0,
-    forceTankNext: false,
+    nextUnitOverride: null,
     saucerTimer: 0,
+    nextUnitAt: 0,
   };
   states.set(world, fresh);
   return fresh;
@@ -88,6 +100,7 @@ export function enemyBrain(enemy: Enemy): EnemyBrain {
   const fresh: EnemyBrain = {
     goal: enemy.heading,
     ftimer: 0,
+    aliveTicks: 0,
     retreatTurn: 1,
     blocked: false,
     drift: { x: 0, z: 0 },
@@ -99,7 +112,8 @@ export function enemyBrain(enemy: Enemy): EnemyBrain {
   return fresh;
 }
 
-/** Ticks `FTIMER` on, saturating the way the ROM's byte does. */
+/** Ticks the unit's two age counters on; `FTIMER` saturates the way the ROM's byte does. */
 export function ageEnemy(brain: EnemyBrain): void {
   brain.ftimer = Math.min(brain.ftimer + 1, ENEMY_FTIMER_MAX);
+  brain.aliveTicks += 1;
 }
