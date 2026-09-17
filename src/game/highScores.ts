@@ -108,14 +108,32 @@ export function insertHighScore(
   return inserted.slice(0, HSCNUM);
 }
 
-/** Whether a parsed value has the shape of a table entry. */
+/**
+ * Whether a parsed value is a table entry: three characters of initials and a
+ * score that is a real, non-negative number.  Anything else was not written by
+ * this game - a hand-edited store, a half-finished write, a different version -
+ * and is not worth guessing at.
+ */
 function isEntry(value: unknown): value is HighScoreEntry {
   if (typeof value !== 'object' || value === null) return false;
   const { initials, score } = value as Partial<HighScoreEntry>;
-  return typeof initials === 'string' && typeof score === 'number' && Number.isFinite(score);
+  return (
+    typeof initials === 'string' &&
+    initials.length === INITIALS_LENGTH &&
+    typeof score === 'number' &&
+    Number.isFinite(score) &&
+    score >= 0
+  );
 }
 
-/** The stored table, or the ROM defaults if there is nothing sound to read. */
+/**
+ * The stored table, or the ROM defaults if there is nothing sound to read.
+ *
+ * What comes back is always a full `HSCNUM` rows, sorted best first: the table is
+ * ten entries in the ROM whatever has been played, and a short store - an older
+ * version, a partial write - is topped up from the power-on table rather than
+ * leaving the display with gaps and `qualifies` with a zero cutoff.
+ */
 export function loadHighScores(storage: HighScoreStorage): HighScoreEntry[] {
   let parsed: unknown;
   try {
@@ -129,7 +147,9 @@ export function loadHighScores(storage: HighScoreStorage): HighScoreEntry[] {
     return defaultHighScores();
   }
 
-  return parsed.slice(0, HSCNUM).map(({ initials, score }) => ({ initials, score }));
+  const stored = parsed.slice(0, HSCNUM).map(({ initials, score }) => ({ initials, score }));
+  const padded = [...stored, ...defaultHighScores()].slice(0, HSCNUM);
+  return padded.sort((a, b) => b.score - a.score);
 }
 
 /** Writes the table back, ignoring a storage that will not have it. */

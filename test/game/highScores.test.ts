@@ -141,6 +141,46 @@ describe('loadHighScores', () => {
 
     expect(loadHighScores(storage)).toHaveLength(HSCNUM);
   });
+
+  it('tops a short table back up to ten from the ROM defaults', () => {
+    const storage = fakeStorage({
+      [HIGH_SCORES_STORAGE_KEY]: JSON.stringify([entry('ADS', 42000), entry('XYZ', 9000)]),
+    });
+
+    const table = loadHighScores(storage);
+
+    expect(table).toHaveLength(HSCNUM);
+    expect(table[0]).toEqual(entry('ADS', 42000));
+    expect(table[1]).toEqual(entry('XYZ', 9000));
+    // The rest are the power-on entries, so the tenth score is a real cutoff.
+    expect(table[HSCNUM - 1]!.score).toBe(DEFAULT_HIGH_SCORE);
+  });
+
+  it('sorts what it read, so a jumbled store still reads best first', () => {
+    const storage = fakeStorage({
+      [HIGH_SCORES_STORAGE_KEY]: JSON.stringify([
+        entry('LOW', 6000),
+        entry('TOP', 99000),
+        entry('MID', 20000),
+      ]),
+    });
+
+    const scores = loadHighScores(storage).map((e) => e.score);
+
+    expect(scores).toEqual([...scores].sort((a, b) => b - a));
+    expect(scores[0]).toBe(99000);
+  });
+
+  it('refuses entries whose initials are the wrong length or whose score is negative', () => {
+    for (const bad of [
+      [{ initials: 'TOOLONG', score: 9000 }],
+      [{ initials: 'AB', score: 9000 }],
+      [{ initials: 'ADS', score: -1000 }],
+    ]) {
+      const storage = fakeStorage({ [HIGH_SCORES_STORAGE_KEY]: JSON.stringify(bad) });
+      expect(loadHighScores(storage), JSON.stringify(bad)).toEqual(defaultHighScores());
+    }
+  });
 });
 
 describe('newInitialsEntry', () => {

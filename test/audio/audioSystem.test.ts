@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { FakeAudioContext, FakeScheduledSource } from './fakeAudioContext';
+import { FakeAudioContext, asAudioContext, type FakeScheduledSource } from './fakeAudioContext';
 import { createAudioSystem } from '../../src/audio/audioSystem';
 import { LOUD_EXPLOSION_SECONDS, SOFT_EXPLOSION_SECONDS } from '../../src/audio/sounds/explosion';
 import {
@@ -44,8 +44,41 @@ describe('unlock', () => {
     const audio = createAudioSystem(() => {
       throw new Error('no audio here');
     });
-    await expect(audio.unlock()).resolves.toBeUndefined();
+    await expect(audio.unlock()).resolves.toBe(false);
     expect(() => audio.handle({ type: 'playerFired' })).not.toThrow();
+  });
+
+  it('reports whether the context is actually running, so a refused gesture shows', async () => {
+    const fake = new FakeAudioContext();
+    // A browser that will not resume yet: the page is hidden, or the gesture was
+    // not one it accepts. The caller has to keep listening rather than give up.
+    fake.resume = async (): Promise<void> => {};
+    const audio = createAudioSystem(() => asAudioContext(fake));
+
+    expect(await audio.unlock()).toBe(false);
+
+    const real = new FakeAudioContext();
+    const second = createAudioSystem(() => asAudioContext(real));
+    expect(await second.unlock()).toBe(true);
+  });
+});
+
+describe('setMuted', () => {
+  it('ignores a repeat of the mute it is already in', async () => {
+    const { fake, audio } = await unlocked();
+    const master = gains(fake)[0]!;
+
+    audio.setMuted(true);
+    const afterFirst = master.gain.changes.length;
+    audio.setMuted(true);
+    audio.setMuted(true);
+
+    // A repeated mute would start a fresh fade - and stop every voice again -
+    // every tick it was asked for.
+    expect(master.gain.changes.length).toBe(afterFirst);
+
+    audio.setMuted(false);
+    expect(master.gain.changes.length).toBeGreaterThan(afterFirst);
   });
 });
 

@@ -14,9 +14,12 @@
  *   attract phase.
  * * The cabinet kept its high scores in battery-backed RAM.  Here they are loaded
  *   from `localStorage` at boot and written back whenever the table changes, which
- *   is only ever at the end of an entry.
+ *   is only ever at the end of an entry.  Reaching for `localStorage` at all can
+ *   throw - blocked site data, a sandboxed iframe - so the game falls back to a
+ *   table that lives as long as the page rather than refusing to boot.
  * * Browsers will not start an `AudioContext` until the user has done something, so
- *   the first key or click unlocks it; the ROM had no such problem.
+ *   a key or a click unlocks it; the ROM had no such problem.  A gesture can be
+ *   refused, so the listeners stay on until the context actually reports running.
  */
 
 import { createAudioSystem } from './audio';
@@ -24,7 +27,12 @@ import { TICK_HZ } from './data/constants';
 import { createLoop } from './engine/loop';
 import { createRng } from './engine/rng';
 import { createGame, isAttractPhase } from './game/game';
-import { loadHighScores, saveHighScores } from './game/highScores';
+import {
+  HIGH_SCORES_STORAGE_KEY,
+  loadHighScores,
+  saveHighScores,
+  type HighScoreStorage,
+} from './game/highScores';
 import type { HighScoreEntry } from './game/types';
 import { createInput } from './input/input';
 import { createKeyboard } from './input/keyboard';
@@ -46,17 +54,52 @@ const input = createInput({
 
 const audio = createAudioSystem();
 
-/** Web Audio stays suspended until the player has touched something. */
+/**
+ * Web Audio stays suspended until the player has touched something - and a given
+ * gesture can still be refused, so the listeners come off only once the context
+ * confirms it is running.
+ */
 function unlockAudio(): void {
-  void audio.unlock();
-  window.removeEventListener('keydown', unlockAudio);
-  window.removeEventListener('pointerdown', unlockAudio);
+  void audio.unlock().then((running) => {
+    if (!running) return;
+    window.removeEventListener('keydown', unlockAudio);
+    window.removeEventListener('pointerdown', unlockAudio);
+  });
 }
 window.addEventListener('keydown', unlockAudio);
 window.addEventListener('pointerdown', unlockAudio);
 
-const storage = window.localStorage;
+/** A table that lives as long as the page, for when the browser has no store to give. */
+function memoryStorage(): HighScoreStorage {
+  const items = new Map<string, string>();
+  return {
+    getItem: (key) => items.get(key) ?? null,
+    setItem: (key, value) => void items.set(key, value),
+  };
+}
+
+/**
+ * `localStorage` throws on access - not just on use - when site data is blocked or
+ * the page is in a sandboxed iframe, so even naming it has to be guarded.
+ */
+function openStorage(): HighScoreStorage {
+  try {
+    const store = window.localStorage;
+    // Safari hands back a store that throws on the first write; find out now.
+    const probe = `${HIGH_SCORES_STORAGE_KEY}.probe`;
+    store.setItem(probe, '1');
+    store.removeItem(probe);
+    return store;
+  } catch {
+    return memoryStorage();
+  }
+}
+
+const storage = openStorage();
 let savedScores: HighScoreEntry[] = loadHighScores(storage);
+
+/** The mute the audio system was last told about. */
+let wasMuted = false;
 
 const game = createGame({
   // The one place a seed may come from the clock: nothing downstream may.
@@ -69,8 +112,13 @@ const loop = createLoop({
   update: () => {
     const events = game.update(input.poll());
 
-    // The original mutes everything, POKEY included, outside a game.
-    audio.setMuted(isAttractPhase(game.state.phase));
+    // The original mutes everything, POKEY included, outside a game.  Only a
+    // change is worth reporting: a repeated mute would restart the fade every tick.
+    const muted = isAttractPhase(game.state.phase);
+    if (muted !== wasMuted) {
+      wasMuted = muted;
+      audio.setMuted(muted);
+    }
     for (const event of events) audio.handle(event);
     audio.update(game.audioSnapshot());
 
