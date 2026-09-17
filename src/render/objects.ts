@@ -149,12 +149,11 @@ export function drawWorldObjects(d: VectorDisplay, cam: Camera, world: World): v
     // byte arrives as the obstacle's heading.
     drawAt(d, cam, obstacle.kind, obstacle.pos, 0, obstacle.heading);
   }
-  for (const unit of world.enemies) {
-    // A shot saucer stays on the field with `alive` false while `SCOLFG` runs
-    // down, and the ROM keeps drawing it for exactly that long; everything else
-    // that dies is off the list already and represented by its debris.
-    if (unit.alive || unit.state === 'dying') drawEnemy(d, cam, unit, world.tick);
-  }
+  // Everything still on the list is drawn.  A unit that dies is taken off it and
+  // represented by its debris; the one exception is the shot saucer, which stays
+  // with `alive` false while `SCOLFG` runs down, and `alive` picks its brightness
+  // rather than deciding whether it is drawn at all.
+  for (const unit of world.enemies) drawEnemy(d, cam, unit, world.tick);
   for (const shell of world.shells) drawShell(d, cam, shell);
   for (const piece of world.debris) drawDebris(d, cam, piece);
 }

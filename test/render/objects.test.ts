@@ -164,8 +164,17 @@ describe('drawWorldObjects', () => {
     expect(level(SAUCER_DEATH_TICKS / 2)).toBeGreaterThan(level(1));
   });
 
-  it('draws nothing for a dead enemy', () => {
-    expect(draw(worldWith({ enemies: [enemy({ alive: false })] }))).toHaveLength(0);
+  it('draws every unit the world is still holding', () => {
+    // The world takes a dead unit off the list itself - the fading saucer is the
+    // one it keeps - so `alive` picks the brightness, not whether to draw.
+    const units = [
+      enemy({ id: 1 }),
+      enemy({ id: 2, kind: 'supertank', pos: { x: 2000, z: 6000 } }),
+    ];
+    const both = draw(worldWith({ enemies: units }));
+    const one = draw(worldWith({ enemies: [units[0]!] }));
+    expect(one.length).toBeGreaterThan(0);
+    expect(both.length).toBeGreaterThan(one.length);
   });
 
   it('draws nothing for an object behind the player', () => {
