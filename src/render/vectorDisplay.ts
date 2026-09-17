@@ -50,6 +50,13 @@ const MONOCHROME_COLOUR = '#e8ffe8';
  * browser paints nothing at all for a stroked path whose ends are the same
  * point, round line cap or not. A hair of length is enough to make the cap draw
  * its circle, and is far too small to read as a line.
+ *
+ * It is also the line below which a segment is treated as a dot rather than a
+ * line, because Chrome stops painting a little way above zero rather than at it:
+ * measured against a canvas, a segment paints down to about a millionth of a
+ * pixel and vanishes below that, at every device pixel ratio from 2 down to
+ * 0.25. So an edge seen so nearly end-on that it is shorter than a dot is drawn
+ * as the dot it already looks like, instead of falling into that hole.
  */
 const DOT_LENGTH = 0.01;
 
@@ -180,10 +187,14 @@ export function createCanvasDisplay(
       ctx.globalAlpha = alpha * Math.max(line.intensity, 0) ** PHOSPHOR_GAMMA;
       const [x0, y0] = screenToCanvas(transform, line.x0, line.y0);
       const [x1, y1] = screenToCanvas(transform, line.x1, line.y1);
+      // A dot arrives with both ends in the same place, and an edge seen end-on
+      // with them too close together for the browser to paint; see DOT_LENGTH.
+      const dx = x1 - x0;
+      const dy = y1 - y0;
+      const isDot = dx * dx + dy * dy < DOT_LENGTH * DOT_LENGTH;
       ctx.beginPath();
       ctx.moveTo(x0, y0);
-      // A dot arrives here with both ends in the same place; see DOT_LENGTH.
-      ctx.lineTo(x0 === x1 && y0 === y1 ? x1 + DOT_LENGTH : x1, y1);
+      ctx.lineTo(isDot ? x0 + DOT_LENGTH : x1, isDot ? y0 : y1);
       ctx.stroke();
     }
   };
