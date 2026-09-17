@@ -11,7 +11,8 @@ export interface Rng {
 }
 
 export type EnemyKind = 'tank' | 'supertank' | 'missile' | 'saucer';
-export type ObstacleKind = 'pyramid' | 'cube' | 'tallCube' | 'wideCube';
+/** The ROM's four obstacle shapes; each name is also the key of its model in data/models.ts. */
+export type ObstacleKind = 'pyramid' | 'pyramidWide' | 'box' | 'boxShort';
 
 /** Ground-plane position. +Z is "forward" at heading 0. */
 export interface Vec2 {
@@ -55,6 +56,8 @@ export interface Shell {
 export interface Obstacle {
   kind: ObstacleKind;
   pos: Vec2;
+  /** Yaw in radians, same convention as Player.heading (the ROM layout gives each obstacle an orientation). */
+  heading: number;
   radius: number;
 }
 
