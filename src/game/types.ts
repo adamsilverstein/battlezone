@@ -144,7 +144,7 @@ export interface AudioSnapshot {
   engineRunning: boolean;
   /** Treads engaged: rumble pitch rises. */
   moving: boolean;
-  /** Repeating alert beep while true. */
+  /** An enemy unit is within alert range (drives the ENEMY IN RANGE text; the original has no dedicated in-range beep). */
   enemyInRange: boolean;
   /** Missile whine while a missile is alive. */
   missileActive: boolean;
