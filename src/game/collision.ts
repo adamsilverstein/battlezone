@@ -34,6 +34,7 @@ import {
   SHELL_TANK_ANGLE_SHIFT,
   SHELL_TANK_RADIUS_BASE,
   TANGLE_UNIT_RADIANS,
+  TANK_TANK_RADIUS,
   WORLD_SIZE,
 } from '../data/constants';
 import { wrapAngle } from '../engine/math';
@@ -197,6 +198,24 @@ export function nearestEnemyUnit(world: World): Enemy | null {
 }
 
 /**
+ * The enemy tank the given position has run into, or null.
+ *
+ * `OBJOBJ` runs its tank-versus-tank test for the player as well as for the enemy:
+ * the distance high byte must be under 5, `$500` = 1280 units
+ * (BZONE.MAC.txt:7231-7283).  The saucer is not in `OBJOBJ` at all, and a missile at
+ * that range kills both parties rather than blocking, so only the two tank kinds
+ * stop a vehicle here.
+ */
+export function tankAtContact(pos: Vec2, enemies: readonly Enemy[]): Enemy | null {
+  for (const enemy of enemies) {
+    if (!enemy.alive) continue;
+    if (enemy.kind !== 'tank' && enemy.kind !== 'supertank') continue;
+    if (octagonalDistance(pos, enemy.pos) < TANK_TANK_RADIUS) return enemy;
+  }
+  return null;
+}
+
+/**
  * "ENEMY IN RANGE": the enemy unit is inside the radar's reach, which is the
  * single test `DRADAR` makes - `TDIST`, the high byte of the octagonal distance,
  * under `$80` (BZONE.MAC.txt:7857-7885, 7989-8015).
@@ -207,14 +226,18 @@ export function isEnemyInRange(world: World): boolean {
 }
 
 /**
- * Whether the reticle shows its locked picture: the enemy unit is in range and
- * its bearing is within `RETICLE_LOCK_HEADING` heading units of the view
- * direction (`PTURN` < 2, BZONE.MAC.txt:971-1019).
+ * Whether the reticle shows its locked picture: the enemy unit's bearing is within
+ * `RETICLE_LOCK_HEADING` heading units of the view direction (`PTURN` < 2,
+ * BZONE.MAC.txt:971-1019).
+ *
+ * `MAIN` makes that test on `PTURN` alone - there is no distance in it.  The reticle
+ * flares open for an enemy dead ahead however far off it is, which is a different
+ * question from whether "ENEMY IN RANGE" is lit, and the two are deliberately not
+ * wired together.
  */
 export function isTargetInSights(world: World): boolean {
   const unit = nearestEnemyUnit(world);
   if (unit === null) return false;
-  if (octagonalDistance(world.player.pos, unit.pos) >= ENEMY_IN_RANGE_UNITS) return false;
   return (
     Math.abs(wrapAngle(bearingTo(world.player.pos, unit.pos) - world.player.heading)) <
     RETICLE_LOCK_RADIANS

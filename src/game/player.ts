@@ -43,8 +43,8 @@ import {
 } from '../data/constants';
 import type { InputState } from '../input/types';
 import { TAU, wrapAngle } from '../engine/math';
-import { circleHitsObstacle, wrapCoordinate } from './collision';
-import type { GameEvent, Vec2, World } from './types';
+import { circleHitsObstacle, tankAtContact, wrapCoordinate } from './collision';
+import type { EnemyKind, GameEvent, Vec2, World } from './types';
 import { internalState } from './worldState';
 
 /** One rotation step in radians: 1/512 of a turn, clockwise-positive. */
@@ -108,7 +108,15 @@ export function updatePlayer(world: World, input: InputState): GameEvent[] {
     z: wrapCoordinate(before.z + distance * Math.cos(player.heading)),
   };
 
-  if (!circleHitsObstacle(player.pos, PLAYER_OBSTACLE_RADIUS, world.obstacles)) {
+  // An enemy tank is as solid as a pyramid: `OBJOBJ` runs its tank-versus-tank test
+  // for the player too, so driving into one stops the tank rather than passing
+  // through it.  A tank the player bumps does not back off (see `enemies/tank.ts`),
+  // so the two simply grind against each other.
+  const blocked =
+    circleHitsObstacle(player.pos, PLAYER_OBSTACLE_RADIUS, world.obstacles) !== null ||
+    tankAtContact(player.pos, world.enemies) !== null;
+
+  if (!blocked) {
     state.playerBlocked = false;
     return [];
   }
@@ -117,6 +125,21 @@ export function updatePlayer(world: World, input: InputState): GameEvent[] {
   const wasBlocked = state.playerBlocked;
   state.playerBlocked = true;
   return wasBlocked ? [] : [{ type: 'motionBlocked' }];
+}
+
+/**
+ * The player is destroyed.  The enemy scores 1000 of its own for the kill, which is
+ * what drives the difficulty ramp (`HITS+2`, BZONE.MAC.txt:6757), and the next unit
+ * is forced to a tank - the ROM refuses to follow a kill with a missile
+ * (BZONE.MAC.txt:5249-5255).  The death sequence itself is the game state
+ * machine's.
+ */
+export function killPlayer(world: World, by: EnemyKind): GameEvent[] {
+  const state = internalState(world);
+  world.player.alive = false;
+  state.playerDeaths += 1;
+  state.nextUnitOverride = 'tank';
+  return [{ type: 'playerDestroyed', by }];
 }
 
 /** Puts the player back on the field for a new life. */

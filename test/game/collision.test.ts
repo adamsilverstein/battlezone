@@ -247,17 +247,26 @@ describe('isEnemyInRange', () => {
 });
 
 describe('isTargetInSights', () => {
-  it('locks only within the reticle window, and only in range', () => {
+  it('locks only within the reticle window', () => {
     const world = makeWorld();
     world.enemies = [enemy('tank', 0, 5000)];
     expect(isTargetInSights(world)).toBe(true);
 
     world.player.heading = 4 * TANGLE_UNIT_RADIANS;
     expect(isTargetInSights(world)).toBe(false);
+  });
 
-    world.player.heading = 0;
-    world.enemies = [enemy('tank', 0, ENEMY_IN_RANGE_UNITS + 1000)];
-    expect(isTargetInSights(world)).toBe(false);
+  it('locks on an enemy dead ahead however far off it is', () => {
+    // MAIN tests PTURN alone: the reticle and "ENEMY IN RANGE" are separate things.
+    const world = makeWorld();
+    world.player.heading = Math.PI / 4;
+    world.enemies = [enemy('tank', 24000, 24000)];
+
+    expect(octagonalDistance(world.player.pos, world.enemies[0]!.pos)).toBeGreaterThan(
+      ENEMY_IN_RANGE_UNITS,
+    );
+    expect(isEnemyInRange(world)).toBe(false);
+    expect(isTargetInSights(world)).toBe(true);
   });
 });
 
