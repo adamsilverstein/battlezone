@@ -34,11 +34,12 @@ const renderer = createRenderer(display);
 
 const loop = createLoop({
   tickHz: TICK_HZ,
-  update: () => {
-    state.world.tick += 1;
-    state.phaseTicks += 1;
-    const step = TAU / (PAN_SECONDS * TICK_HZ);
-    state.world.player.heading = wrapAngle(state.world.player.heading + step);
+  // The loop numbers the ticks, and update(n) produces the state after tick n.
+  update: (tick) => {
+    state.world.tick = tick + 1;
+    state.phaseTicks = tick + 1;
+    // A function of the tick rather than an accumulation, so the pan cannot drift.
+    state.world.player.heading = wrapAngle((state.world.tick * TAU) / (PAN_SECONDS * TICK_HZ));
   },
   render: (alpha) => renderer.render(state, alpha),
 });

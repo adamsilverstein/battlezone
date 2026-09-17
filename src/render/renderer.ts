@@ -35,7 +35,11 @@ export function createRenderer(d: VectorDisplay): {
       const { player, tick } = state.world;
       if (tick !== lastTick) {
         const snapshot = { x: player.pos.x, z: player.pos.z, heading: player.heading };
-        previous = Number.isNaN(lastTick) ? snapshot : current;
+        // Only consecutive ticks are worth blending. When the loop catches up
+        // several ticks before a render, or the world is replaced outright, the
+        // held snapshot is stale and interpolating from it would rewind the
+        // camera; snap to the new state instead.
+        previous = tick === lastTick + 1 ? current : snapshot;
         current = snapshot;
         lastTick = tick;
       }

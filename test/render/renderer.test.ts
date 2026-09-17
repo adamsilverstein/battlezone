@@ -65,6 +65,28 @@ describe('createRenderer', () => {
     );
   });
 
+  it('snaps rather than interpolating when the loop skips ticks', () => {
+    const d = createRecordingDisplay();
+    const renderer = createRenderer(d);
+    renderer.render(stateAt(0, 0, 0, 0), 0);
+    // The loop caught up four ticks before this render; the tick 0 snapshot is
+    // stale, so blending from it would drag the camera backwards.
+    renderer.render(stateAt(4, 400, 400, 1), 0.5);
+    expect(d.lines).toEqual(
+      expected({ pos: { x: 400, z: 400 }, heading: 1, eyeHeight: EYE_HEIGHT_UNITS }, 4),
+    );
+  });
+
+  it('snaps when the tick goes backwards, as a restarted world does', () => {
+    const d = createRecordingDisplay();
+    const renderer = createRenderer(d);
+    renderer.render(stateAt(9, 900, 900, 2), 0);
+    renderer.render(stateAt(0, 0, 0, 0), 0.5);
+    expect(d.lines).toEqual(
+      expected({ pos: { x: 0, z: 0 }, heading: 0, eyeHeight: EYE_HEIGHT_UNITS }, 0),
+    );
+  });
+
   it('interpolates headings the short way round the wrap', () => {
     const d = createRecordingDisplay();
     const renderer = createRenderer(d);
