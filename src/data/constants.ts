@@ -990,6 +990,13 @@ export const ATTRACT_TIMOUT_TRIGGER = 4;
 export const ATTRACT_TIMOUT_RELOAD = 3;
 
 /**
+ * The demo pilot drives forward while bit 6 of `FRAME` is clear and reverses while
+ * it is set, so it changes its mind every 64 ticks - about four seconds
+ * (`MOTION` in attract mode, BZONE.MAC.txt:5143-5175).
+ */
+export const ATTRACT_DRIVE_MASK = 0x40;
+
+/**
  * The flying BATTLE ZONE logo.  BATINT starts it at x = 0x0400, z = 0xFC00
  * (-1024); each tick x grows by 0x40 and z by 8, and when z passes 0x200 the
  * sequence restarts (BATTLE/BATINT, BZONE.MAC.txt:1397-1551).  That is 192
