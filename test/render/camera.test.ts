@@ -189,4 +189,36 @@ describe('drawModel', () => {
     drawModel(far, cam, pole, { x: 0, y: 0, z: 14000 }, { x: 0, y: 0, z: 0 });
     expect(far.lines[0]!.intensity).toBeLessThan(near.lines[0]!.intensity);
   });
+
+  it('draws an edgeless model as one dot per vertex', () => {
+    const cloud: WireModel = {
+      name: 'cloud',
+      vertices: [
+        [0, 0, 0],
+        [0, 300, 0],
+        [0, -300, 0],
+      ],
+      edges: [],
+    };
+    const d = createRecordingDisplay();
+    drawModel(d, cam, cloud, { x: 0, y: 0, z: 4000 }, { x: 0, y: 0, z: 0 });
+    expect(d.lines).toHaveLength(3);
+    for (const line of d.lines) {
+      expect(line.x0).toBe(line.x1);
+      expect(line.y0).toBe(line.y1);
+    }
+    // The three vertices are spread across the screen, not stacked on one point.
+    expect(new Set(d.lines.map((l) => l.x0)).size).toBe(3);
+  });
+
+  it('can draw without the distance fade, as the saucer does', () => {
+    const cued = createRecordingDisplay();
+    const flat = createRecordingDisplay();
+    drawModel(cued, cam, pole, { x: 0, y: 0, z: 14000 }, { x: 0, y: 0, z: 0 }, 1);
+    drawModel(flat, cam, pole, { x: 0, y: 0, z: 14000 }, { x: 0, y: 0, z: 0 }, 1, {
+      depthCue: false,
+    });
+    expect(flat.lines[0]!.intensity).toBe(1);
+    expect(cued.lines[0]!.intensity).toBeLessThan(1);
+  });
 });

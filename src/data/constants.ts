@@ -505,9 +505,10 @@ export const RETICLE_BLINK_TICKS = RETICLE_BLINK_NMIS / NMI_PER_TICK;
 
 /**
  * Reserve-tank icons: the origin of the first `TSYMBL` icon and the step to the
- * next one.  The icon art is 48 units wide, so the step leaves a small gap
- * (INFO/DrawScoreLives, BZONE.MAC.txt:8275; reference section 1 reads the step
- * as about 57 units).
+ * next one.  The origin is from the ROM (INFO, BZONE.MAC.txt:8275).  The step is
+ * NOT: nothing in the source states it, and 57 is inferred from the 48-unit-wide
+ * icon art plus the gap the reference measures off the screen photographs
+ * ("icon ~57 units wide", reference section 1).  ESTIMATE.
  */
 export const LIVES_ICON_ORIGIN = [128, 360] as const;
 export const LIVES_ICON_SPACING = 57;
