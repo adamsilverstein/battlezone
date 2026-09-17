@@ -144,6 +144,37 @@ describe('drawModel', () => {
     expect(Math.max(line.y0, line.y1)).toBeCloseTo(0, 9);
   });
 
+  it('keeps a model whole as it nears the draw distance', () => {
+    // ROTPNT decides near and far for the object, once, so every vector of an
+    // accepted object is drawn. Measuring each edge against those planes
+    // instead trimmed the ones that crossed: a tank lost its turret and a box
+    // its far face while both were still in plain sight.
+    const box: WireModel = {
+      name: 'box',
+      vertices: [
+        [-400, -400, -320],
+        [400, -400, -320],
+        [400, 400, -320],
+        [-400, 400, -320],
+      ],
+      edges: [
+        [0, 1],
+        [1, 2],
+        [2, 3],
+        [3, 0],
+      ],
+    };
+    for (const z of [FAR_CLIP_UNITS - 600, FAR_CLIP_UNITS - 100, FAR_CLIP_UNITS - 1]) {
+      const d = createRecordingDisplay();
+      drawModel(d, cam, box, { x: 0, y: 0, z }, { x: 0, y: 0, z: 0 });
+      expect(d.lines).toHaveLength(box.edges.length);
+    }
+    // And past it the whole object goes, rather than the near half of it staying.
+    const gone = createRecordingDisplay();
+    drawModel(gone, cam, box, { x: 0, y: 0, z: FAR_CLIP_UNITS + 1 }, { x: 0, y: 0, z: 0 });
+    expect(gone.lines).toHaveLength(0);
+  });
+
   it('draws nothing for a model behind the camera', () => {
     const d = createRecordingDisplay();
     drawModel(d, cam, pole, { x: 0, y: 0, z: -4000 }, { x: 0, y: 0, z: 0 });

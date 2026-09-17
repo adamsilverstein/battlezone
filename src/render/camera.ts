@@ -92,23 +92,52 @@ export function projectSegment(
   a: Vec3,
   b: Vec3,
 ): { x0: number; y0: number; x1: number; y1: number } | null {
-  return clipAndProject(toView(cam, a), toView(cam, b));
+  return clipAndProject(toView(cam, a), toView(cam, b), NEAR_CLIP_UNITS, FAR_CLIP_UNITS);
+}
+
+/**
+ * The depth ahead of the eye at which a model's own edges are cut.
+ *
+ * ROTPNT decides near and far for the object as a whole, so an edge is not
+ * measured against those planes again - that is what used to saw models in half.
+ * What is left is arithmetic: the perspective divide needs a depth in front of
+ * the eye, and a vertex behind it would come back mirrored. A hair in front is
+ * enough, and the window clip takes care of where it lands.
+ */
+const EYE_CLIP_UNITS = 1;
+
+/**
+ * ROTPNT's object test: whether a whole object is drawn at all
+ * (BZONE.MAC.txt:3313-3387).
+ *
+ * The original decided this once, for the object's own position, and then drew
+ * every vector of it - the hardware window circuit was the only other thing that
+ * could stop a vector, and it worked in screen space. Applying the depth planes
+ * to each edge instead trims the edges that cross one, which shows up as a tank
+ * losing its turret and a box losing its far face as they near the draw
+ * distance.
+ */
+export function objectInView(cam: Camera, pos: Vec3): boolean {
+  const z = toView(cam, pos).z;
+  return z >= NEAR_CLIP_UNITS && z <= FAR_CLIP_UNITS;
 }
 
 /** The depth-clip, project and window-clip half of `projectSegment`. */
 function clipAndProject(
   start: Vec3,
   end: Vec3,
+  near: number,
+  far: number,
 ): { x0: number; y0: number; x1: number; y1: number } | null {
   let va = start;
   let vb = end;
 
-  if (va.z < NEAR_CLIP_UNITS && vb.z < NEAR_CLIP_UNITS) return null;
-  if (va.z > FAR_CLIP_UNITS && vb.z > FAR_CLIP_UNITS) return null;
-  if (va.z < NEAR_CLIP_UNITS) va = atDepth(va, vb, NEAR_CLIP_UNITS);
-  else if (vb.z < NEAR_CLIP_UNITS) vb = atDepth(vb, va, NEAR_CLIP_UNITS);
-  if (va.z > FAR_CLIP_UNITS) va = atDepth(va, vb, FAR_CLIP_UNITS);
-  else if (vb.z > FAR_CLIP_UNITS) vb = atDepth(vb, va, FAR_CLIP_UNITS);
+  if (va.z < near && vb.z < near) return null;
+  if (va.z > far && vb.z > far) return null;
+  if (va.z < near) va = atDepth(va, vb, near);
+  else if (vb.z < near) vb = atDepth(vb, va, near);
+  if (va.z > far) va = atDepth(va, vb, far);
+  else if (vb.z > far) vb = atDepth(vb, va, far);
 
   const sa = projectView(va);
   const sb = projectView(vb);
@@ -141,6 +170,10 @@ export function drawModel(
   intensity = 1,
   opts?: { depthCue?: boolean },
 ): void {
+  // ROTPNT takes the object or leaves it, once, on its own position; see
+  // `objectInView`.
+  if (!objectInView(cam, pos)) return;
+
   const depthCue = opts?.depthCue ?? true;
   const litAt = (base: number, depth: number): number =>
     depthCue ? depthIntensity(base, depth) : base;
@@ -156,7 +189,7 @@ export function drawModel(
   });
 
   const draw = (a: Vec3, b: Vec3): void => {
-    const seg = clipAndProject(a, b);
+    const seg = clipAndProject(a, b, EYE_CLIP_UNITS, Infinity);
     if (!seg) return;
     d.line(seg.x0, seg.y0, seg.x1, seg.y1, litAt(intensity, (a.z + b.z) / 2));
   };
