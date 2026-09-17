@@ -18,12 +18,18 @@ import {
 } from '../../src/render/screens';
 import { createRecordingDisplay, type RecordedLine } from '../../src/render/vectorDisplay';
 
+/**
+ * A state at `tick`.  `phaseTicks` counts up with the tick rather than sitting at
+ * zero, because zero is the renderer's signal that a phase has just begun and
+ * nothing may be blended across it - the respawn teleport is the case that matters
+ * - and these fixtures are all mid-phase.
+ */
 function stateAt(tick: number, x: number, z: number, heading: number): GameState {
   const world = createAttractWorld();
   world.tick = tick;
   world.player.pos = { x, z };
   world.player.heading = heading;
-  return { phase: 'attractTitle', phaseTicks: 0, world, highScores: [] };
+  return { phase: 'attractTitle', phaseTicks: tick + 1, world, highScores: [] };
 }
 
 /**
@@ -37,7 +43,9 @@ function expected(cam: Camera, tick: number, state?: GameState, view?: World): R
   const shown = state ?? stateAt(tick, cam.pos.x, cam.pos.z, cam.heading);
   const world = view ?? shown.world;
   const highScore = Math.max(...shown.highScores.map((e) => e.score), world.score);
-  const inPlay = shown.phase === 'playing' || shown.phase === 'playerDead';
+  const inPlay =
+    shown.phase === 'playing' || shown.phase === 'playerDead' || shown.phase === 'gameOver';
+  const frozenHud = shown.phase === 'playerDead' || shown.phase === 'gameOver';
   const d = createRecordingDisplay();
   d.beginFrame();
 
@@ -45,12 +53,20 @@ function expected(cam: Camera, tick: number, state?: GameState, view?: World): R
     drawHighScoreTable(d, shown.highScores, { bonusThreshold: DEFAULT_OPTIONS.bonusThreshold });
   } else if (shown.phase === 'highScoreEntry' && shown.entry) {
     drawInitialsEntry(d, shown.entry);
-    drawHud(d, world, { showReticle: false, showRadar: false, blinkTick: tick, highScore });
+    drawHud(d, world, {
+      showReticle: false,
+      showRadar: false,
+      showAlert: false,
+      blinkTick: tick,
+      highScore,
+    });
   } else {
     drawHorizon(d, cam, tick);
     drawWorldObjects(d, cam, world);
     drawHud(d, world, {
-      showReticle: shown.phase !== 'attractTitle',
+      showReticle: shown.phase !== 'attractTitle' && !frozenHud,
+      showRadar: !frozenHud,
+      showAlert: !frozenHud,
       blinkTick: tick,
       highScore,
     });
@@ -120,11 +136,50 @@ describe('createRenderer', () => {
     const d = createRecordingDisplay();
     const renderer = createRenderer(d);
     renderer.render(stateAt(0, 0, 0, 0), 0);
-    renderer.render(stateAt(1, 0, 0, 1), 0);
-    // A second frame in the same tick keeps interpolating from tick 0 to tick 1.
+    renderer.render(stateAt(1, 0, 0, 1), 0.5);
+    // The same tick rendered again keeps blending from tick 0 to tick 1, at
+    // whatever alpha the loop reports.
     renderer.render(stateAt(1, 0, 0, 1), 0.25);
     expect(d.lines).toEqual(
       expected({ pos: { x: 0, z: 0 }, heading: 0.25, eyeHeight: EYE_HEIGHT_UNITS }, 1),
+    );
+  });
+
+  it('holds still when the tick stops advancing, whatever alpha does', () => {
+    const d = createRecordingDisplay();
+    const renderer = createRenderer(d);
+    const moving = stateAt(1, 0, 0, 1);
+    renderer.render(stateAt(0, 0, 0, 0), 0);
+    renderer.render(moving, 0);
+
+    // The world is frozen from here - the crack and GAME OVER both do this - but
+    // the loop keeps cycling alpha. Every frame has to draw the same thing.
+    const frozen = { ...moving, phase: 'playerDead' as const, phaseTicks: 5 };
+    renderer.render(frozen, 0);
+    const first = [...d.lines];
+    for (const alpha of [0.25, 0.5, 0.99]) {
+      renderer.render(frozen, alpha);
+      expect(d.lines, `alpha ${alpha}`).toEqual(first);
+    }
+  });
+
+  it('snaps rather than sliding when a phase has just begun', () => {
+    const d = createRecordingDisplay();
+    const renderer = createRenderer(d);
+    // A respawn teleports the player on a tick that looks perfectly consecutive,
+    // so only the fresh phase counter says not to blend across it.
+    renderer.render(stateAt(6, 0, 0, 0), 0);
+    const respawned = stateAt(7, 9000, 9000, 2);
+    respawned.phase = 'playing';
+    respawned.phaseTicks = 0;
+    renderer.render(respawned, 0.5);
+
+    expect(d.lines).toEqual(
+      expected(
+        { pos: { x: 9000, z: 9000 }, heading: 2, eyeHeight: EYE_HEIGHT_UNITS },
+        7,
+        respawned,
+      ),
     );
   });
 

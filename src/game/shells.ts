@@ -87,10 +87,20 @@ export function fireShell(world: World, owner: Shell['owner'], from: Vec2, headi
   return shell;
 }
 
+/**
+ * Whether the player's shot is still on its way.  One shell at a time is the whole
+ * reload rule, so this is also "the cannon is empty": the reticle blinks while it
+ * is true, and the death sequence holds for it so a shot already in the air can
+ * still score (BZONE.MAC.txt:1231-1345).
+ */
+export function playerShellInFlight(world: World): boolean {
+  return world.shells.some((shell) => shell.owner === 'player');
+}
+
 /** Fires the player's cannon, unless a shell of theirs is already in flight. */
 export function firePlayerShell(world: World): GameEvent[] {
   if (!world.player.alive) return [];
-  if (world.shells.some((shell) => shell.owner === 'player')) return [];
+  if (playerShellInFlight(world)) return [];
 
   fireShell(world, 'player', world.player.pos, world.player.heading);
   return [{ type: 'playerFired' }];

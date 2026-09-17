@@ -175,7 +175,7 @@ export function shellHitsUnit(
 // --------------------------------------------------------------------------- //
 
 /** How near dead ahead an enemy has to be for the reticle to flare open. */
-const RETICLE_LOCK_RADIANS = RETICLE_LOCK_HEADING * TANGLE_UNIT_RADIANS;
+export const RETICLE_LOCK_RADIANS = RETICLE_LOCK_HEADING * TANGLE_UNIT_RADIANS;
 
 /**
  * The enemy unit the radar and the HUD talk about: the nearest living tank,

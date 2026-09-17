@@ -112,6 +112,8 @@ export function createRenderer(d: VectorDisplay): {
   // NaN so the first render always takes the "new tick" path and seeds both ends,
   // which is why this placeholder is never actually drawn from.
   let lastTick = Number.NaN;
+  let lastPhase: GameState['phase'] | null = null;
+  let lastPhaseTicks = Number.NaN;
   let previous: Snapshot = {
     camera: { x: 0, z: 0, y: EYE_HEIGHT_UNITS, heading: 0 },
     entities: new Map(),
@@ -122,16 +124,30 @@ export function createRenderer(d: VectorDisplay): {
     render(state: GameState, alpha: number): void {
       const { world } = state;
       const { tick } = world;
+      // A phase that has just begun has moved things the blend cannot follow: a
+      // respawn teleports the player across the field on a tick that looks
+      // perfectly consecutive, and every screen change swaps the world outright.
+      const phaseChanged = state.phase !== lastPhase || state.phaseTicks === 0;
+      lastPhase = state.phase;
+
       if (tick !== lastTick) {
         const snapshot = snapshotOf(world);
         // Only consecutive ticks are worth blending. When the loop catches up
         // several ticks before a render, or the world is replaced outright, the
         // held snapshot is stale and interpolating from it would rewind
         // everything; snap to the new state instead.
-        previous = tick === lastTick + 1 ? current : snapshot;
+        previous = tick === lastTick + 1 && !phaseChanged ? current : snapshot;
         current = snapshot;
         lastTick = tick;
+      } else if (state.phaseTicks !== lastPhaseTicks) {
+        // A game tick passed and the world did not move: it is frozen, as it is
+        // through the crack and under GAME OVER. There is nothing left to
+        // interpolate towards, and the loop's alpha keeps cycling regardless, so
+        // holding the two ends apart would saw-tooth the view between two ticks it
+        // has already left behind. Collapsing them pins it.
+        previous = current;
       }
+      lastPhaseTicks = state.phaseTicks;
 
       /** An entity's transform this frame: blended if it was here last tick. */
       const at = (key: string, now: Transform): Transform => {
@@ -167,9 +183,18 @@ export function createRenderer(d: VectorDisplay): {
       // The table is not guaranteed to be sorted, so take the best of it, and of
       // the score in hand once the player has passed it.
       const highScore = Math.max(...state.highScores.map((entry) => entry.score), world.score);
-      // A game is being played from the start button until the last crack fades,
-      // which is when the copyright line and PRESS START stay off.
-      const inPlay = state.phase === 'playing' || state.phase === 'playerDead';
+      // A game holds the screen from the start button until the GAME OVER message
+      // has had its time: the copyright line and PRESS START stay off for all of
+      // it, and the start button does nothing during the hold, so inviting a press
+      // there would be a lie.
+      const inPlay =
+        state.phase === 'playing' || state.phase === 'playerDead' || state.phase === 'gameOver';
+      // `MAIN` jumps to `WNSHLD` the moment the player is hit and never reaches
+      // the radar, the reticle or the range alert again while the crack is up
+      // (BZONE.MAC.txt:961-965).  The world is frozen from that point through
+      // GAME OVER as well, so a radar drawn from it would hold a motionless sweep
+      // and "ENEMY IN RANGE" would burn steadily over both.
+      const frozenHud = state.phase === 'playerDead' || state.phase === 'gameOver';
 
       d.beginFrame();
 
@@ -182,6 +207,7 @@ export function createRenderer(d: VectorDisplay): {
         drawHud(d, view, {
           showReticle: false,
           showRadar: false,
+          showAlert: false,
           blinkTick: tick,
           highScore,
         });
@@ -189,9 +215,11 @@ export function createRenderer(d: VectorDisplay): {
         drawHorizon(d, cam, tick);
         drawWorldObjects(d, cam, view);
         drawHud(d, view, {
-          // The ROM draws no gunsight behind the attract logo; everything else
-          // keeps it (BZONE.MAC.txt:961-965).
-          showReticle: state.phase !== 'attractTitle',
+          // The ROM draws no gunsight behind the attract logo; every other display
+          // with a live battlefield under it keeps one.
+          showReticle: state.phase !== 'attractTitle' && !frozenHud,
+          showRadar: !frozenHud,
+          showAlert: !frozenHud,
           blinkTick: tick,
           highScore,
         });

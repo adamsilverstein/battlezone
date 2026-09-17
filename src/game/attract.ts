@@ -18,18 +18,11 @@
  * and the chance in an attract cycle all comes from the enemy AI it is fighting.
  */
 
-import { ATTRACT_DRIVE_MASK, RETICLE_LOCK_HEADING, TANGLE_UNIT_RADIANS } from '../data/constants';
+import { ATTRACT_DRIVE_MASK } from '../data/constants';
 import { wrapAngle } from '../engine/math';
 import { NEUTRAL_INPUT, type InputState } from '../input/types';
-import { bearingTo, nearestEnemyUnit } from './collision';
+import { RETICLE_LOCK_RADIANS, bearingTo, nearestEnemyUnit } from './collision';
 import type { Rng, World } from './types';
-
-/**
- * How far off the nose the demo pilot bothers to turn.  The reticle's own lock
- * window is what "in sights" means everywhere else in the game, so the pilot
- * steers until the target is inside it and then drives at it.
- */
-const AIM_TOLERANCE_RADIANS = RETICLE_LOCK_HEADING * TANGLE_UNIT_RADIANS;
 
 /** Treads for a pivot: `+1` turns right, `-1` left (the table in game/player.ts). */
 function pivot(direction: 1 | -1): Pick<InputState, 'leftTread' | 'rightTread'> {
@@ -55,9 +48,12 @@ export function attractInput(world: World, tick: number, _rng: Rng): InputState 
   const drive = driveDirection(tick);
 
   if (target) {
+    // The reticle's own lock window is what "in sights" means everywhere else in
+    // the game, so the pilot steers until the target is inside it, then drives at
+    // it and shoots.
     const off = wrapAngle(bearingTo(world.player.pos, target.pos) - world.player.heading);
     const treads =
-      Math.abs(off) > AIM_TOLERANCE_RADIANS
+      Math.abs(off) > RETICLE_LOCK_RADIANS
         ? pivot(off > 0 ? 1 : -1)
         : { leftTread: 1 as const, rightTread: 1 as const };
     return {
