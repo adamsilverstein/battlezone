@@ -98,8 +98,10 @@ export interface World {
 export type GameEvent =
   | { type: 'playerFired' }
   | { type: 'enemyFired' }
-  | { type: 'shellHitObstacle' }
-  | { type: 'shellExpired' }
+  /** A shell struck an obstacle; pos is where the burst picture is drawn. */
+  | { type: 'shellHitObstacle'; owner: 'player' | 'enemy'; pos: Vec2 }
+  /** A shell ran out of life; pos is where it vanished. */
+  | { type: 'shellExpired'; owner: 'player' | 'enemy'; pos: Vec2 }
   | { type: 'enemyDestroyed'; kind: EnemyKind; points: number }
   | { type: 'playerDestroyed'; by: EnemyKind }
   | { type: 'enemySpawned'; kind: EnemyKind }

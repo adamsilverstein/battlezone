@@ -73,7 +73,7 @@ describe('one-shot events', () => {
 
   it('plays a soft explosion for an obstacle hit and a loud one for a kill', async () => {
     const obstacle = await unlocked();
-    obstacle.audio.handle({ type: 'shellHitObstacle' });
+    obstacle.audio.handle({ type: 'shellHitObstacle', owner: 'player', pos: { x: 0, z: 0 } });
     expect(sourceDurations(obstacle.fake)).toEqual([SOFT_EXPLOSION_SECONDS]);
 
     const kill = await unlocked();
@@ -219,7 +219,7 @@ describe('one-shot events', () => {
     const { fake, audio } = await unlocked();
     const before = fake.nodes.length;
 
-    audio.handle({ type: 'shellExpired' });
+    audio.handle({ type: 'shellExpired', owner: 'player', pos: { x: 0, z: 0 } });
     audio.handle({ type: 'enemySpawned', kind: 'tank' });
     audio.handle({ type: 'saucerAppeared' });
     audio.handle({ type: 'saucerLeft' });
