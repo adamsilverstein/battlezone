@@ -1,7 +1,8 @@
 /**
  * The ROM string table and the two primitives everything on the screen is drawn
  * with: a string at a table entry's own position and size, and a vector-ROM
- * picture at an offset.
+ * picture at an offset.  (Source citations are to the Atari listings at
+ * https://github.com/historicalsource/battlezone, not to anything in this tree.)
  *
  * `MESSAGES` in `data/pictures.ts` stores each string with the coordinates the
  * ROM's `DrawStringPtr` table gives it, in quarter units, and its index - and the

@@ -149,12 +149,16 @@ describe('attract mode', () => {
     const game = newGame();
     run(game, ATTRACT_HIGH_SCORE_TICKS + 20);
     expect(game.state.phase).toBe('attractTitle');
+    const before = game.state.cameraSnap ?? 0;
     killPlayer(game);
 
     expect(game.state.phase).toBe('attractTitle');
     expect(game.state.world.player.alive).toBe(true);
     // A demo life costs nothing.
     expect(game.state.world.lives).toBe(DEFAULT_OPTIONS.lives);
+    // The demo tank was carried back to the start mid-phase, which the renderer
+    // has to cut to rather than sweep across.
+    expect(game.state.cameraSnap).toBe(before + 1);
   });
 });
 
@@ -162,8 +166,10 @@ describe('starting a game', () => {
   it('opens a fresh battlefield with the cabinet lives and no score', () => {
     const game = newGame();
     run(game, 30);
+    const before = game.state.cameraSnap ?? 0;
     game.update(START);
 
+    expect(game.state.cameraSnap).toBe(before + 1);
     expect(game.state.phase).toBe('playing');
     expect(game.state.phaseTicks).toBe(0);
     expect(game.state.world.tick).toBe(0);
@@ -268,6 +274,21 @@ describe('the death sequence', () => {
         );
       }
     }
+  });
+
+  it('tells the renderer the respawn was a teleport, not a drive', () => {
+    const game = play();
+    run(game, 5);
+    const before = game.state.cameraSnap ?? 0;
+    killPlayer(game);
+    const frozen = game.state.world.tick;
+    run(game, DEATH_SEQUENCE_TICKS);
+
+    expect(game.state.phase).toBe('playing');
+    expect(game.state.cameraSnap).toBe(before + 1);
+    // And it happens on a tick that does not advance the world, which is why the
+    // renderer cannot infer it: the death sequence holds the world still.
+    expect(game.state.world.tick).toBe(frozen);
   });
 
   it('lets a shell already in flight score from beyond the grave', () => {

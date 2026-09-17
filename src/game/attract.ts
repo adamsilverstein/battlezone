@@ -1,5 +1,7 @@
 /**
  * The demo pilot: what drives the player's tank while nobody is playing.
+ * (Source citations are to the Atari listings at
+ * https://github.com/historicalsource/battlezone, not to anything in this tree.)
  *
  * `MOTION` takes the sticks over in attract mode (BZONE.MAC.txt:5143-5175): the
  * tank drives forward while bit 6 of `FRAME` is clear and reverses while it is set

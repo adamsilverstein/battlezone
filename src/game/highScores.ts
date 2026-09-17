@@ -1,5 +1,7 @@
 /**
  * The ten-entry high score table, its persistence and the initials editor.
+ * (Source citations are to the Atari listings at
+ * https://github.com/historicalsource/battlezone, not to anything in this tree.)
  *
  * THE TABLE
  * ---------

@@ -1,7 +1,8 @@
 /**
  * The full-screen displays that stand in for the battlefield: the attract title
  * with its flying logo, the high score table, the initials entry screen and the
- * GAME OVER line.  The ROM string table and the two drawing primitives they share
+ * GAME OVER line.  (Source citations are to the Atari listings at
+ * https://github.com/historicalsource/battlezone, not to anything in this tree.)  The ROM string table and the two drawing primitives they share
  * with the HUD live in `render/messages.ts`.
  *
  * `MAIN` "branch[es] away to the high score or attract display if either is

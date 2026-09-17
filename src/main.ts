@@ -81,14 +81,16 @@ function memoryStorage(): HighScoreStorage {
 /**
  * `localStorage` throws on access - not just on use - when site data is blocked or
  * the page is in a sandboxed iframe, so even naming it has to be guarded.
+ *
+ * The probe only reads.  A store that is full, or over quota, still hands back a
+ * perfectly good saved table, and falling back to memory over a refused *write*
+ * would throw that table away and show the player the factory scores instead;
+ * `saveHighScores` already swallows a write that will not go through.
  */
 function openStorage(): HighScoreStorage {
   try {
     const store = window.localStorage;
-    // Safari hands back a store that throws on the first write; find out now.
-    const probe = `${HIGH_SCORES_STORAGE_KEY}.probe`;
-    store.setItem(probe, '1');
-    store.removeItem(probe);
+    store.getItem(HIGH_SCORES_STORAGE_KEY);
     return store;
   } catch {
     return memoryStorage();

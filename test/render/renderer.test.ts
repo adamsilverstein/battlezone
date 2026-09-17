@@ -163,6 +163,77 @@ describe('createRenderer', () => {
     }
   });
 
+  it('snaps on the respawn the state machine actually produces', () => {
+    // The real sequence, tick by tick: the player drives, is hit, the world stops
+    // advancing while the crack spreads, and then the respawn puts them down
+    // somewhere else on a tick that does not advance the world either - so a
+    // renderer waiting for the next tick to notice would sweep the camera across
+    // the field one tick late.
+    const alive = stateAt(20, 0, 0, 0);
+    alive.phase = 'playing';
+    alive.phaseTicks = 20;
+
+    const hit = stateAt(21, 300, 0, 0);
+    hit.phase = 'playerDead';
+    hit.phaseTicks = 0;
+
+    const cracking = (phaseTicks: number): GameState => {
+      // The world is frozen: same tick, same place, only the phase counter moves.
+      const state = stateAt(21, 300, 0, 0);
+      state.phase = 'playerDead';
+      state.phaseTicks = phaseTicks;
+      return state;
+    };
+
+    // resetPlayer puts the tank down elsewhere without advancing the world.
+    const respawn = stateAt(21, -9000, 9000, 3);
+    respawn.phase = 'playing';
+    respawn.phaseTicks = 0;
+    respawn.cameraSnap = 1;
+
+    // And the game runs on from there.
+    const running = stateAt(22, -9000, 9000, 3);
+    running.phase = 'playing';
+    running.phaseTicks = 1;
+    running.cameraSnap = 1;
+
+    const d = createRecordingDisplay();
+    const renderer = createRenderer(d);
+    renderer.render(alive, 0);
+    renderer.render(hit, 0);
+    for (const phaseTicks of [1, 2, 3]) renderer.render(cracking(phaseTicks), 0.5);
+
+    renderer.render(respawn, 0.5);
+    const atRespawn = [...d.lines];
+    renderer.render(running, 0.5);
+    const afterRespawn = [...d.lines];
+
+    // Both frames are drawn from where the player now is, with nothing blended in
+    // from where they died.
+    const cam = { pos: { x: -9000, z: 9000 }, heading: 3, eyeHeight: EYE_HEIGHT_UNITS };
+    expect(atRespawn).toEqual(expected(cam, 21, respawn));
+    expect(afterRespawn).toEqual(expected(cam, 22, running));
+  });
+
+  it('snaps when the demo stands its tank back up mid-phase', () => {
+    // A demo death teleports the player while the phase and the ticks both run on,
+    // so the only signal is the counter the state machine bumps.
+    const before = stateAt(40, 2000, 2000, 1);
+    before.phaseTicks = 40;
+    const after = stateAt(41, 0, 0, 0);
+    after.phaseTicks = 41;
+    after.cameraSnap = 7;
+
+    const d = createRecordingDisplay();
+    const renderer = createRenderer(d);
+    renderer.render(before, 0);
+    renderer.render(after, 0.5);
+
+    expect(d.lines).toEqual(
+      expected({ pos: { x: 0, z: 0 }, heading: 0, eyeHeight: EYE_HEIGHT_UNITS }, 41, after),
+    );
+  });
+
   it('snaps rather than sliding when a phase has just begun', () => {
     const d = createRecordingDisplay();
     const renderer = createRenderer(d);

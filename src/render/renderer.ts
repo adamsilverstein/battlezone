@@ -114,6 +114,7 @@ export function createRenderer(d: VectorDisplay): {
   let lastTick = Number.NaN;
   let lastPhase: GameState['phase'] | null = null;
   let lastPhaseTicks = Number.NaN;
+  let lastCameraSnap = Number.NaN;
   let previous: Snapshot = {
     camera: { x: 0, z: 0, y: EYE_HEIGHT_UNITS, heading: 0 },
     entities: new Map(),
@@ -124,19 +125,27 @@ export function createRenderer(d: VectorDisplay): {
     render(state: GameState, alpha: number): void {
       const { world } = state;
       const { tick } = world;
-      // A phase that has just begun has moved things the blend cannot follow: a
-      // respawn teleports the player across the field on a tick that looks
-      // perfectly consecutive, and every screen change swaps the world outright.
-      const phaseChanged = state.phase !== lastPhase || state.phaseTicks === 0;
+      // Things the blend cannot follow: a phase that has just begun, and anything
+      // the state machine put down by hand - a respawn, a demo reset, a fresh
+      // battlefield - which it reports by bumping `cameraSnap`.  Neither can be
+      // inferred from the world alone: a respawn happens on a tick that looks
+      // perfectly consecutive, and on the very tick the crack ends the world does
+      // not advance at all, so waiting for the next tick to notice would leave the
+      // camera sweeping across the field one tick late.
+      const snapRequested =
+        state.phase !== lastPhase ||
+        state.phaseTicks === 0 ||
+        (state.cameraSnap ?? 0) !== lastCameraSnap;
       lastPhase = state.phase;
+      lastCameraSnap = state.cameraSnap ?? 0;
 
-      if (tick !== lastTick) {
+      if (tick !== lastTick || snapRequested) {
         const snapshot = snapshotOf(world);
         // Only consecutive ticks are worth blending. When the loop catches up
         // several ticks before a render, or the world is replaced outright, the
         // held snapshot is stale and interpolating from it would rewind
         // everything; snap to the new state instead.
-        previous = tick === lastTick + 1 && !phaseChanged ? current : snapshot;
+        previous = tick === lastTick + 1 && !snapRequested ? current : snapshot;
         current = snapshot;
         lastTick = tick;
       } else if (state.phaseTicks !== lastPhaseTicks) {

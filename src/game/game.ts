@@ -2,6 +2,10 @@
  * The game state machine: attract mode, a game, the death sequence, game over and
  * high score entry - `MAIN` plus the bits of the NMI that start a game.
  *
+ * The Atari source listings cited throughout - `BZONE.MAC.txt` and its siblings -
+ * are not in this repository; they are the published sources at
+ * https://github.com/historicalsource/battlezone.
+ *
  * THE PHASES AND THEIR LENGTHS
  * ----------------------------
  * The original has two attract displays and toggles between them every `TIMOUT`
@@ -149,10 +153,22 @@ export function createGame(opts: { rng: Rng; highScores: HighScoreEntry[] }): Ga
     phaseTicks: 0,
     world: createAttractWorld(),
     highScores: opts.highScores,
+    cameraSnap: 0,
   };
 
   /** `LTIMER`: ticks before the initials stick may step the letter again. */
   let letterTimer = 0;
+
+  /**
+   * Tells the renderer the player did not drive to where they now are, so the view
+   * must cut rather than sweep.  Every place that puts the player down by hand -
+   * the respawn, the demo standing its tank back up, a new battlefield - says so
+   * here; the renderer cannot work it out for itself, because a teleport and a very
+   * fast tick look the same from the outside.
+   */
+  function snapCamera(): void {
+    state.cameraSnap = (state.cameraSnap ?? 0) + 1;
+  }
 
   function enter(phase: GamePhase): void {
     state.phase = phase;
@@ -169,6 +185,7 @@ export function createGame(opts: { rng: Rng; highScores: HighScoreEntry[] }): Ga
   function enterAttract(phase: GamePhase): void {
     state.world = createAttractWorld();
     state.entry = undefined;
+    snapCamera();
     enter(phase);
   }
 
@@ -176,6 +193,7 @@ export function createGame(opts: { rng: Rng; highScores: HighScoreEntry[] }): Ga
   function startGame(): void {
     state.world = createWorld(rng, { lives: DEFAULT_OPTIONS.lives });
     state.entry = undefined;
+    snapCamera();
     enter('playing');
   }
 
@@ -210,6 +228,7 @@ export function createGame(opts: { rng: Rng; highScores: HighScoreEntry[] }): Ga
       break;
     }
     world.player.heading = rng.next() * TAU;
+    snapCamera();
 
     // The enemy stands down: a random heading for about three seconds, and no
     // shot for two, which is what resetting `FTIMER` buys (docs/reference/
@@ -226,8 +245,12 @@ export function createGame(opts: { rng: Rng; highScores: HighScoreEntry[] }): Ga
     const { world } = state;
     const events = updateWorld(world, attractInput(world, world.tick, rng), rng);
     // Nothing is at stake in the demo, so a hit costs no life and shows no crack;
-    // the ROM's demo enemy hardly ever attacks at all.
-    if (!world.player.alive) resetPlayer(world);
+    // the ROM's demo enemy hardly ever attacks at all.  It does put the demo tank
+    // back at the start, mid-phase and mid-tick, which is a teleport like any other.
+    if (!world.player.alive) {
+      resetPlayer(world);
+      snapCamera();
+    }
     return events;
   }
 

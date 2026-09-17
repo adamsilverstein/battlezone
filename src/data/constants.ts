@@ -9,6 +9,10 @@
  * map).  Those listings are blank-line separated, so quoted line numbers are the
  * odd-numbered code lines.
  *
+ * The listings are not in this repository: they are the Atari sources published at
+ * https://github.com/historicalsource/battlezone, and every `*.MAC.txt:NNNN`
+ * citation in this project refers to a file there.
+ *
  * UNITS
  * -----
  * * Positions are unsigned 16-bit and wrap, so the battlefield is a 65536 x
