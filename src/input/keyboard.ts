@@ -29,16 +29,30 @@ function isMapped(code: string): boolean {
  * a `RawInput`. Held state, not events, is what the simulation needs, so the
  * listeners only maintain a set and `read()` stays a plain lookup.
  *
+ * WHY A TAP IS LATCHED
+ * -------------------
+ * The simulation polls once a tick, every 64 ms, and browsers deliver a keydown
+ * and its keyup as separate tasks: a quick tap - which is how anyone presses
+ * start, and how a test's `keyboard.press` always behaves - can begin and end
+ * between two polls and leave the held set empty at both of them, so the press
+ * never happens at all. Every keydown is therefore latched until the next
+ * `read`, whatever the keyup does in between, and the tap arrives as one held
+ * frame. `read` is the only consumer of that latch, so it clears it, which makes
+ * it the one method here that is not a pure lookup.
+ *
  * A mapped key's default action is cancelled: Space and the arrows would otherwise
  * scroll the page out from under the display.
  */
 export function createKeyboard(target: EventTarget): { read(): RawInput; dispose(): void } {
   const heldCodes = new Set<string>();
+  /** Mapped keys pressed since the last `read`, even if they are already up again. */
+  const tappedCodes = new Set<string>();
 
   const onKeyDown = (event: Event): void => {
     const { code } = event as KeyboardEvent;
     if (!isMapped(code)) return;
     heldCodes.add(code);
+    tappedCodes.add(code);
     // Space and the arrows scroll the page and Enter can activate whatever has
     // focus; the cabinet's controls do none of that, so the key stops here.
     event.preventDefault();
@@ -52,9 +66,12 @@ export function createKeyboard(target: EventTarget): { read(): RawInput; dispose
 
   return {
     read(): RawInput {
+      const active = new Set([...heldCodes, ...tappedCodes]);
+      tappedCodes.clear();
+
       let leftTread = 0;
       let rightTread = 0;
-      for (const code of heldCodes) {
+      for (const code of active) {
         const tread = TREAD_KEYS[code];
         if (tread === undefined) continue;
         leftTread += tread.leftTread;
@@ -63,14 +80,15 @@ export function createKeyboard(target: EventTarget): { read(): RawInput; dispose
       return {
         leftTread: clampTread(leftTread),
         rightTread: clampTread(rightTread),
-        fire: heldCodes.has(FIRE_KEY),
-        start: heldCodes.has(START_KEY),
+        fire: active.has(FIRE_KEY),
+        start: active.has(START_KEY),
       };
     },
     dispose(): void {
       target.removeEventListener('keydown', onKeyDown);
       target.removeEventListener('keyup', onKeyUp);
       heldCodes.clear();
+      tappedCodes.clear();
     },
   };
 }

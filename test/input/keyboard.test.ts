@@ -28,6 +28,40 @@ describe('createKeyboard', () => {
     expect(keyboard.read()).toEqual({ leftTread: 0, rightTread: 0, fire: false, start: false });
   });
 
+  it('holds a tap that begins and ends between two reads', () => {
+    // The simulation polls every 64 ms; a tap on fire or on start is shorter than
+    // that, and dropping it is the difference between the game starting on the
+    // first press and appearing to ignore it.
+    const target = new EventTarget();
+    const keyboard = keyboardOn(target);
+    down(target, 'Space');
+    up(target, 'Space');
+    expect(keyboard.read()).toMatchObject({ fire: true });
+    // And only for the one read: the key really is up.
+    expect(keyboard.read()).toMatchObject({ fire: false });
+  });
+
+  it('holds a tapped start and a tapped tread key too', () => {
+    const target = new EventTarget();
+    const keyboard = keyboardOn(target);
+    down(target, 'Enter');
+    up(target, 'Enter');
+    down(target, 'KeyW');
+    up(target, 'KeyW');
+    expect(keyboard.read()).toMatchObject({ start: true, leftTread: 1 });
+    expect(keyboard.read()).toMatchObject({ start: false, leftTread: 0 });
+  });
+
+  it('keeps reporting a key that is still down after a tap of the same key', () => {
+    const target = new EventTarget();
+    const keyboard = keyboardOn(target);
+    down(target, 'Space');
+    up(target, 'Space');
+    down(target, 'Space');
+    expect(keyboard.read()).toMatchObject({ fire: true });
+    expect(keyboard.read()).toMatchObject({ fire: true });
+  });
+
   it('maps W and S to the left tread', () => {
     const target = new EventTarget();
     const keyboard = keyboardOn(target);

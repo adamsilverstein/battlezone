@@ -42,6 +42,25 @@ describe('quantiseTread', () => {
 });
 
 describe('createInput', () => {
+  it('reports a press for a key tapped between two polls', () => {
+    // The keyboard latches a tap until the next read, so a down and an up inside
+    // one tick still arrive as a held frame, and the edge fires exactly once.
+    let tapped = false;
+    const keyboard = {
+      read: (): RawInput => {
+        const raw = { ...NEUTRAL_RAW, fire: tapped };
+        tapped = false;
+        return raw;
+      },
+    };
+    const input = createInput({ getGamepads: () => [], keyboard });
+
+    expect(input.poll()).toMatchObject({ fire: false, firePressed: false });
+    tapped = true;
+    expect(input.poll()).toMatchObject({ fire: true, firePressed: true });
+    expect(input.poll()).toMatchObject({ fire: false, firePressed: false });
+  });
+
   it('reads neutral with no pad and an untouched keyboard', () => {
     const input = createInput({ getGamepads: () => [], keyboard: fakeKeyboard() });
     expect(input.poll()).toEqual({
