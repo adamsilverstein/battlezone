@@ -215,6 +215,29 @@ describe('createRenderer', () => {
     expect(afterRespawn).toEqual(expected(cam, 22, running));
   });
 
+  it('blends the last tick of motion into the crack', () => {
+    // The player is hit on a tick the world really did advance, so the step from
+    // playing to playerDead is ordinary motion and the view must not jump: only a
+    // teleport the state machine reports, or a phase that was not being played,
+    // may break the blend.
+    const alive = stateAt(20, 0, 0, 0);
+    alive.phase = 'playing';
+    alive.phaseTicks = 20;
+
+    const hit = stateAt(21, 400, 0, 0);
+    hit.phase = 'playerDead';
+    hit.phaseTicks = 0;
+
+    const d = createRecordingDisplay();
+    const renderer = createRenderer(d);
+    renderer.render(alive, 0);
+    renderer.render(hit, 0.5);
+
+    expect(d.lines).toEqual(
+      expected({ pos: { x: 200, z: 0 }, heading: 0, eyeHeight: EYE_HEIGHT_UNITS }, 21, hit),
+    );
+  });
+
   it('snaps when the demo stands its tank back up mid-phase', () => {
     // A demo death teleports the player while the phase and the ticks both run on,
     // so the only signal is the counter the state machine bumps.

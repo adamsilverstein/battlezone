@@ -106,6 +106,15 @@ function crackProgress(phaseTicks: number): number {
   return clamp(phaseTicks / CRACK_GROUPS, 0, 1);
 }
 
+/**
+ * The phases a tank is being driven through, which the camera may blend across.
+ * The player is still in their tank while the crack spreads, and the tick they
+ * were hit on is a tick they were moving on.  Everything else - the attract
+ * table, the initials editor, GAME OVER - either replaces the world or holds it
+ * still, so a frame after one of those has nothing truthful to blend from.
+ */
+const PLAY_PHASES: ReadonlySet<GameState['phase']> = new Set(['playing', 'playerDead']);
+
 export function createRenderer(d: VectorDisplay): {
   render(state: GameState, alpha: number): void;
 } {
@@ -125,16 +134,24 @@ export function createRenderer(d: VectorDisplay): {
     render(state: GameState, alpha: number): void {
       const { world } = state;
       const { tick } = world;
-      // Things the blend cannot follow: a phase that has just begun, and anything
-      // the state machine put down by hand - a respawn, a demo reset, a fresh
-      // battlefield - which it reports by bumping `cameraSnap`.  Neither can be
-      // inferred from the world alone: a respawn happens on a tick that looks
-      // perfectly consecutive, and on the very tick the crack ends the world does
-      // not advance at all, so waiting for the next tick to notice would leave the
+      // Things the blend cannot follow: anything the state machine put down by
+      // hand - a respawn, a demo reset, a fresh battlefield - which it reports by
+      // bumping `cameraSnap`, and arriving in a phase from one that was not
+      // playing, where the world behind the display has been standing still or
+      // has been swapped out from under the snapshot.  Neither can be inferred
+      // from the world alone: a respawn happens on a tick that looks perfectly
+      // consecutive, and on the very tick the crack ends the world does not
+      // advance at all, so waiting for the next tick to notice would leave the
       // camera sweeping across the field one tick late.
+      //
+      // A phase change on its own is not enough, and this is why: the player is
+      // hit on a tick the world really did advance, and treating the step into
+      // `playerDead` as a teleport threw that last tick of motion away, so the
+      // view jerked as the crack came up.  Between the phases that are actually
+      // being played, the camera keeps blending.
       const snapRequested =
-        state.phase !== lastPhase ||
-        state.phaseTicks === 0 ||
+        lastPhase === null ||
+        (state.phase !== lastPhase && !PLAY_PHASES.has(lastPhase)) ||
         (state.cameraSnap ?? 0) !== lastCameraSnap;
       lastPhase = state.phase;
       lastCameraSnap = state.cameraSnap ?? 0;
