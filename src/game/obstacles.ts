@@ -19,6 +19,7 @@
  */
 
 import {
+  HEADING_UNITS_PER_TURN,
   OBSTACLES,
   OBSTACLE_TANK_RADIUS,
   SHELL_OBSTACLE_RADIUS_QUARTERS,
@@ -51,7 +52,7 @@ const KIND_BY_MODEL = Object.fromEntries(
  * from `Player.heading` - increasing `TANGLE` turns left - so converting flips
  * the sign (see the angle convention in `engine/math.ts`).
  */
-const TANGLE_UNIT_RADIANS = TAU / 256;
+const TANGLE_UNIT_RADIANS = TAU / HEADING_UNITS_PER_TURN;
 
 /**
  * Each obstacle's yaw, in the simulation's clockwise radians, index-aligned with

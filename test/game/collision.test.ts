@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { OBSTACLE_TANK_RADIUS, PLAYER_OBSTACLE_RADIUS, WORLD_SIZE } from '../../src/data/constants';
-import { circleHitsObstacle, octagonalDistance, wrapCoordinate } from '../../src/game/collision';
+import {
+  bearingTo,
+  circleHitsObstacle,
+  octagonalDistance,
+  wrapCoordinate,
+} from '../../src/game/collision';
 import type { Obstacle } from '../../src/game/types';
 
 const obstacle = (x: number, z: number, radius: number): Obstacle => ({
@@ -60,6 +65,22 @@ describe('octagonalDistance', () => {
     const a = { x: 123, z: -4567 };
     const b = { x: -890, z: 1234 };
     expect(octagonalDistance(a, b)).toBe(octagonalDistance(b, a));
+  });
+});
+
+describe('bearingTo', () => {
+  it('agrees with the plain heading convention: 0 is +Z, clockwise', () => {
+    expect(bearingTo({ x: 0, z: 0 }, { x: 0, z: 100 })).toBeCloseTo(0, 12);
+    expect(bearingTo({ x: 0, z: 0 }, { x: 100, z: 0 })).toBeCloseTo(Math.PI / 2, 12);
+    expect(bearingTo({ x: 0, z: 0 }, { x: -100, z: 0 })).toBeCloseTo(-Math.PI / 2, 12);
+  });
+
+  it('points the short way across the wrap, not back round the world', () => {
+    const near = { x: 0, z: WORLD_SIZE / 2 - 100 };
+    const far = { x: 0, z: -WORLD_SIZE / 2 + 100 };
+    // 200 units ahead, not 65336 behind.
+    expect(bearingTo(near, far)).toBeCloseTo(0, 12);
+    expect(bearingTo(far, near)).toBeCloseTo(Math.PI, 12);
   });
 });
 

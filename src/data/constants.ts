@@ -169,6 +169,13 @@ export const TURN_STEP_HEADING16 = 0x80;
 export const TURN_STEP_DEGREES = 0.703125;
 
 /**
+ * `TANGLE` units in a full turn.  One unit is 1.40625 degrees, and most of the
+ * ROM's angle thresholds - the radar sweep step, the reticle lock window, the
+ * obstacle orientations - are quoted in them.
+ */
+export const HEADING_UNITS_PER_TURN = 256;
+
+/**
  * Turn steps per tick.  A pivot (one stick forward, one back) turns twice;
  * turning while driving turns once (MTAB dispatch, BZONE.MAC.txt:5217-5247).
  */

@@ -50,6 +50,16 @@ export function octagonalDistance(a: Vec2, b: Vec2): number {
 }
 
 /**
+ * The bearing from one position to another, in the same clockwise convention as
+ * `Player.heading`, measured the short way round the torus.  `angleTo` in
+ * `engine/math.ts` is the same thing without the wrap, which is wrong for
+ * anything near the edge of the playfield.
+ */
+export function bearingTo(from: Vec2, to: Vec2): number {
+  return Math.atan2(wrapCoordinate(to.x - from.x), wrapCoordinate(to.z - from.z));
+}
+
+/**
  * The first obstacle a body of the given collision radius at `pos` is inside, or
  * null.
  *
