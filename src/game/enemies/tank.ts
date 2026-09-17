@@ -74,8 +74,14 @@ import {
 import { TAU, clamp, wrapAngle } from '../../engine/math';
 import { bearingTo, circleHitsObstacle, octagonalDistance, wrapCoordinate } from '../collision';
 import { TURN_STEP_RADIANS } from '../player';
-import type { Enemy, GameEvent, Rng, World } from '../types';
-import { ageEnemy, enemyBrain, internalState, type EnemyBrain } from '../worldState';
+import type { Enemy, GameEvent, Rng, Shell, World } from '../types';
+import {
+  ageEnemy,
+  enemyBrain,
+  internalState,
+  rememberShellFirer,
+  type EnemyBrain,
+} from '../worldState';
 
 /** What the tank is allowed to do with its treads, and how near it will come. */
 export interface TankProfile {
@@ -214,14 +220,18 @@ export function fireEnemyShell(world: World, enemy: Enemy): GameEvent[] {
   if (world.shells.some((shell) => shell.owner === 'enemy')) return [];
 
   const state = internalState(world);
-  world.shells.push({
+  const shell: Shell = {
     id: state.nextShellId,
     owner: 'enemy',
     pos: { ...enemy.pos },
     y: 0,
     heading: enemy.heading,
     ticksLeft: SHELL_LIFE_TICKS,
-  });
+  };
+  world.shells.push(shell);
+  // Whose shell it is, for the death report: the firer may be dead by the time it
+  // lands, so the kind cannot be looked up from the field later.
+  rememberShellFirer(shell, enemy.kind);
   state.nextShellId += 1;
   return [{ type: 'enemyFired' }];
 }

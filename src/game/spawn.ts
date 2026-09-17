@@ -117,6 +117,10 @@ function place(world: World, rng: Rng): GameEvent[] {
   state.nextEnemyId += 1;
   world.enemies.push(enemy);
   enemyBrain(enemy).goal = enemy.heading;
+  // `ROB1` resets `EIRNGE` along with `FTIMER`, so the warning re-arms for the new
+  // arrival even when the one it replaced was in range on this very tick
+  // (BZONE.MAC.txt:7483-7641, 7989-8015).
+  world.enemyInRange = false;
 
   const events: GameEvent[] = [{ type: 'enemySpawned', kind }];
   if (missile) {

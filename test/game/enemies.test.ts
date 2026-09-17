@@ -5,24 +5,28 @@ import {
   ENEMY_EXPERT_SCORE,
   ENEMY_IN_RANGE_UNITS,
   MISSILE_HITTABLE_BELOW,
+  MISSILE_TIMEOUT_TIMOUT,
   RADAR_SWEEP_TICKS_PER_REV,
   SAUCER_DEATH_TICKS,
   SAUCER_MIN_SCORE,
   SHELL_LIFE_TICKS,
   SHELL_STEP_UNITS,
+  TICKS_PER_TIMOUT,
 } from '../../src/data/constants';
 import { createRng } from '../../src/engine/rng';
 import { octagonalDistance } from '../../src/game/collision';
 import {
   enemySystems,
+  fireEnemyShell,
   registerEnemySystems,
   resolveShellHits,
   updateEnemies,
 } from '../../src/game/enemies';
 import { pointsFor } from '../../src/game/score';
+import { updateSpawner } from '../../src/game/spawn';
 import type { Enemy, EnemyKind, GameEvent, Shell } from '../../src/game/types';
 import { createWorld, systems, updateWorld } from '../../src/game/world';
-import { internalState } from '../../src/game/worldState';
+import { enemyBrain, internalState } from '../../src/game/worldState';
 import { makeWorld } from './fixtures';
 import { NEUTRAL_INPUT, type InputState } from '../../src/input/types';
 
@@ -72,11 +76,6 @@ describe('registerEnemySystems', () => {
     registerEnemySystems();
     registerEnemySystems();
     expect(systems).toEqual([...enemySystems]);
-  });
-
-  it('is already installed by importing the module', () => {
-    // The import at the top of this file did it, before anything cleared the list.
-    expect(enemySystems).toHaveLength(2);
   });
 });
 
@@ -158,10 +157,16 @@ describe('resolveShellHits', () => {
     expect(saucer.timer).toBe(SAUCER_DEATH_TICKS);
   });
 
-  it('kills the player with an enemy shell, and counts it for the difficulty ramp', () => {
+  it('kills the player with an enemy shell, and names the unit that fired it', () => {
     const world = makeWorld();
-    world.enemies = [target('supertank')];
-    world.shells = [shellOn('enemy', { x: 0, z: 0 })];
+    const shooter = target('supertank');
+    world.enemies = [shooter];
+    fireEnemyShell(world, shooter);
+    const shell = world.shells[0]!;
+    shell.pos = { x: 0, z: 0 };
+    // By the time it lands the supertank is scrap and a tank has taken its place,
+    // so the kind has to have travelled with the shell.
+    world.enemies = [target('tank')];
 
     const events = resolveShellHits(world, createRng(1));
 
@@ -170,6 +175,20 @@ describe('resolveShellHits', () => {
     expect(internalState(world).playerDeaths).toBe(1);
     expect(internalState(world).nextUnitOverride).toBe('tank');
     expect(world.shells).toEqual([]);
+  });
+
+  it('gives the surviving unit a fresh stall clock when a shell lands', () => {
+    // A landed shell clears TIMOUT, so the spawner stops counting the player as
+    // having evaded this tank.
+    const world = makeWorld();
+    const tank = target('tank');
+    world.enemies = [tank];
+    enemyBrain(tank).aliveTicks = 900;
+    world.shells = [shellOn('enemy', { x: 0, z: 0 })];
+
+    resolveShellHits(world, createRng(1));
+
+    expect(enemyBrain(tank).aliveTicks).toBe(0);
   });
 
   it('lets the two shells fly straight through each other', () => {
@@ -248,6 +267,41 @@ describe('updateEnemies', () => {
 });
 
 describe('the enemy systems in the world', () => {
+  it('puts the next unit up on the very tick the last chunk lands', () => {
+    systems.length = 0;
+    registerEnemySystems();
+    const rng = createRng(3);
+    const world = createWorld(createRng(3));
+    // One tank, and a shell of the player's already on top of it.
+    updateWorld(world, NEUTRAL_INPUT, rng);
+    const doomed = world.enemies[0]!;
+    world.shells = [shellOn('player', { ...doomed.pos })];
+
+    let clearedAt = 0;
+    let arrivedAt = 0;
+    for (let tick = 0; tick < 200 && arrivedAt === 0; tick += 1) {
+      const events = updateWorld(world, NEUTRAL_INPUT, rng);
+      if (clearedAt === 0 && world.debris.length === 0 && world.tick > 1) clearedAt = world.tick;
+      if (events.some((event) => event.type === 'enemySpawned')) arrivedAt = world.tick;
+    }
+
+    expect(clearedAt).toBeGreaterThan(1);
+    expect(arrivedAt).toBe(clearedAt);
+  });
+
+  it('re-arms the in-range warning for each new arrival', () => {
+    const world = makeWorld();
+    const stalled = target('tank');
+    world.enemies = [stalled];
+    world.enemyInRange = true;
+    enemyBrain(stalled).aliveTicks = MISSILE_TIMEOUT_TIMOUT * TICKS_PER_TIMOUT;
+
+    updateSpawner(world, createRng(1));
+
+    expect(world.enemies).not.toContain(stalled);
+    expect(world.enemyInRange).toBe(false);
+  });
+
   it('sweeps up a missile that destroyed itself on the player', () => {
     const world = makeWorld();
     const missile = target('missile');

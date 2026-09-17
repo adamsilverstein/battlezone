@@ -97,7 +97,7 @@ describe('updateSupertank', () => {
     expect(Math.abs(wrapAngle(brain.goal - bearing))).toBeCloseTo(TAU / 4, 9);
   });
 
-  it('dodges each shot once, not every tick it is under fire', () => {
+  it('dodges each shot once, and a fresh shot cannot extend the break-off', () => {
     const { world, enemy, brain } = duel();
     playerFires(world);
     updateSupertank(world, enemy, createRng(1));
@@ -108,10 +108,23 @@ describe('updateSupertank', () => {
     expect(brain.goal).toBe(dodgeGoal);
     expect(enemy.timer).toBe(SUPERTANK_DODGE_TICKS - 1);
 
-    // A fresh shell is a fresh dodge.
+    // A second shot mid-dodge does not restart it - a player firing repeatedly
+    // cannot hold the supertank sideways for ever.
     world.shells = [];
     playerFires(world, 2);
     updateSupertank(world, enemy, createRng(2));
+    expect(enemy.timer).toBe(SUPERTANK_DODGE_TICKS - 2);
+    expect(brain.goal).toBe(dodgeGoal);
+
+    // Once this dodge has run out - with the field clear, so nothing new triggers
+    // one meanwhile - the next shot starts a fresh one.
+    world.shells = [];
+    for (let tick = 0; tick < SUPERTANK_DODGE_TICKS; tick += 1) {
+      updateSupertank(world, enemy, createRng(2));
+    }
+    playerFires(world, 3);
+    updateSupertank(world, enemy, createRng(3));
+    expect(enemy.state).toBe('dodge');
     expect(enemy.timer).toBe(SUPERTANK_DODGE_TICKS);
   });
 

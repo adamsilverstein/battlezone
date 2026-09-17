@@ -18,7 +18,7 @@
  */
 
 import { ENEMY_FTIMER_MAX } from '../data/constants';
-import type { Enemy, Vec2, World } from './types';
+import type { Enemy, EnemyKind, Shell, Vec2, World } from './types';
 
 interface InternalState {
   /** True while the player's move is being backed out every tick. */
@@ -66,10 +66,13 @@ export interface EnemyBrain {
   outOfRangeTicks: number;
   /** The player shell this unit has already reacted to, so it dodges each shot once. */
   dodgedShell: number;
+  /** Ticks left of the supertank's current dodge; a fresh shell cannot extend it. */
+  dodgeTicksLeft: number;
 }
 
 const states = new WeakMap<World, InternalState>();
 const brains = new WeakMap<Enemy, EnemyBrain>();
+const firers = new WeakMap<Shell, EnemyKind>();
 
 /** The world's private state, created on first use. */
 export function internalState(world: World): InternalState {
@@ -107,9 +110,24 @@ export function enemyBrain(enemy: Enemy): EnemyBrain {
     courseTicks: 0,
     outOfRangeTicks: 0,
     dodgedShell: 0,
+    dodgeTicksLeft: 0,
   };
   brains.set(enemy, fresh);
   return fresh;
+}
+
+/**
+ * Remembers which kind of unit fired a shell, so a shell that outlives its firer
+ * can still say what killed the player.  `Shell` publishes only the owner side,
+ * which is all the renderer needs.
+ */
+export function rememberShellFirer(shell: Shell, kind: EnemyKind): void {
+  firers.set(shell, kind);
+}
+
+/** The kind of unit that fired this shell, or null for one nobody claimed. */
+export function shellFirer(shell: Shell): EnemyKind | null {
+  return firers.get(shell) ?? null;
 }
 
 /** Ticks the unit's two age counters on; `FTIMER` saturates the way the ROM's byte does. */

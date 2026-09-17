@@ -147,7 +147,11 @@ export function spawnExplosion(world: World, enemy: Enemy, rng: Rng): void {
     longest = Math.max(longest, ticksLeft);
   }
 
-  if (enemy.kind !== 'saucer') internalState(world).nextUnitAt = world.tick + longest;
+  // `longest` counts the chunk's own `ticksLeft`, and `updateDebris` already runs
+  // once more this very tick - after the hit that called this - so the chunk lands
+  // on tick + longest - 1 and the replacement belongs on that tick, not the one
+  // after it: in the original there is no gap at all.
+  if (enemy.kind !== 'saucer') internalState(world).nextUnitAt = world.tick + longest - 1;
 }
 
 /** Flies every chunk one tick and takes the ones that have landed off the field. */

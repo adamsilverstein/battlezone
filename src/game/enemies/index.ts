@@ -53,7 +53,7 @@ import { addScore, pointsFor } from '../score';
 import { updateSpawner } from '../spawn';
 import type { Enemy, GameEvent, Rng, Shell, Vec2, World } from '../types';
 import { RADAR_SWEEP_RADIANS, systems } from '../world';
-import { internalState } from '../worldState';
+import { enemyBrain, internalState, shellFirer } from '../worldState';
 import { updateMissile } from './missile';
 import { updateSaucer } from './saucer';
 import { updateSupertank } from './supertank';
@@ -156,7 +156,8 @@ function enemyShellHits(world: World, shell: Shell, rng: Rng): GameEvent[] | nul
     state.playerDeaths += 1;
     // The ROM sends a tank after a kill rather than pressing the advantage.
     state.nextUnitOverride = 'tank';
-    return [{ type: 'playerDestroyed', by: nearestEnemyUnit(world)?.kind ?? 'tank' }];
+    // The unit that fired may already be scrap, so the kind travels with the shell.
+    return [{ type: 'playerDestroyed', by: shellFirer(shell) ?? 'tank' }];
   }
 
   const saucer = findSaucer(world);
@@ -186,8 +187,16 @@ export function resolveShellHits(world: World, rng: Rng): GameEvent[] {
       shell.owner === 'player'
         ? playerShellHits(world, shell, rng)
         : enemyShellHits(world, shell, rng);
-    if (hit) events.push(...hit);
-    else flying.push(shell);
+    if (hit) {
+      events.push(...hit);
+      // A landed shell clears `TIMOUT` (BZONE.MAC.txt:4589-4607), so the spawner's
+      // patience with a unit starts again whenever something actually happens - it
+      // is only a stalled, avoided enemy the ladder gives up on.
+      const survivor = nearestEnemyUnit(world);
+      if (survivor) enemyBrain(survivor).aliveTicks = 0;
+    } else {
+      flying.push(shell);
+    }
   }
 
   world.shells = flying;

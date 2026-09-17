@@ -53,8 +53,13 @@ export function updateSupertank(world: World, enemy: Enemy, rng: Rng): GameEvent
   const brain = enemyBrain(enemy);
   const shell = incomingShell(world);
 
-  if (shell !== null && shell !== brain.dodgedShell) {
+  if (brain.dodgeTicksLeft > 0) {
+    // Already breaking off.  A player firing again mid-dodge does not get to hold
+    // the supertank sideways indefinitely; it finishes this one first.
+    brain.dodgeTicksLeft -= 1;
+  } else if (shell !== null && shell !== brain.dodgedShell) {
     brain.dodgedShell = shell;
+    brain.dodgeTicksLeft = SUPERTANK_DODGE_TICKS;
     brain.goal = wrapAngle(bearingTo(enemy.pos, world.player.pos) + TAU / 4);
     enemy.state = 'dodge';
     // The dodge outlives the tank's own decision timer, so the goal stands.

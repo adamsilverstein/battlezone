@@ -68,6 +68,9 @@ describe('updateSpawner', () => {
     const world = makeWorld();
     const dead = unit('tank');
     spawnExplosion(world, dead, createRng(1));
+    // The enemy pass flies the debris on the same tick the shell landed, so the
+    // test has to as well or the booked tick will not line up.
+    updateDebris(world);
     const landsAt = internalState(world).nextUnitAt;
     expect(landsAt).toBeGreaterThan(1);
 
