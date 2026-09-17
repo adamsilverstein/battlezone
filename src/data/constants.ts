@@ -263,6 +263,13 @@ export const ENEMY_MOVE_STEPS = 1;
 export const SUPERTANK_SPEED_MULTIPLIER = 2;
 
 /**
+ * Move steps a tank takes on a tick that found it pointing exactly at its goal:
+ * it puts both treads forward and moves twice (BZONE.MAC.txt:5985-6001;
+ * docs/reference/original-game.md section 3, "Speeds").
+ */
+export const ENEMY_ON_GOAL_MOVE_STEPS = 2;
+
+/**
  * Turn steps per tick while aiming.  Off-target by more than `SKILL` the enemy
  * pivots: two steps for a tank, four for a supertank; on the fine approach it
  * turns one step (BZONE.MAC.txt:5887-5931, 5937-5947).
@@ -369,12 +376,14 @@ export const SUPERTANK_AFTER_MISSILES = 5;
 /**
  * How long the supertank breaks off its approach after the player fires.
  *
- * ESTIMATE: the ROM has no such behaviour - no enemy reacts to the player's
- * shell - but the design spec (5.2) gives the supertank a dodge, so this is the
- * recreation's own number: about 1.5 s, long enough to slide out of the shell's
- * path at supertank speed and short enough that it resumes attacking at once.
+ * ESTIMATE: the ROM has no such behaviour - no enemy reacts to the player's shell
+ * at all - but the design spec (5.2) gives the supertank a dodge, so this is the
+ * recreation's own number.  It has to cover the swing as well as the run: at four
+ * turn steps a tick a 90-degree break takes 32 ticks, so 0x30 ticks (about 3 s)
+ * leaves the supertank a second of driving across the player's line of fire before
+ * it goes back to attacking.
  */
-export const SUPERTANK_DODGE_TICKS = 0x18;
+export const SUPERTANK_DODGE_TICKS = 0x30;
 
 /**
  * Where a new enemy is placed: at a random heading offset from the player, at a
@@ -561,6 +570,9 @@ export const RADAR_BLIP_DECAY = 8;
  */
 export const ENEMY_IN_RANGE_TDIST = 0x80;
 export const ENEMY_IN_RANGE_UNITS = 0x8000;
+
+/** World units per `TDIST` unit, since `TDIST` is that distance's high byte. */
+export const TDIST_UNIT = ENEMY_IN_RANGE_UNITS / ENEMY_IN_RANGE_TDIST;
 
 /**
  * The MathBox "distance" is an octagonal approximation, not a true hypotenuse:
