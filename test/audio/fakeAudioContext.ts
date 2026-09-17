@@ -143,7 +143,8 @@ export class FakeAudioParam {
   }
 }
 
-export type FakeNodeKind = 'oscillator' | 'gain' | 'biquad' | 'bufferSource' | 'destination';
+export type FakeNodeKind =
+  'oscillator' | 'gain' | 'biquad' | 'bufferSource' | 'compressor' | 'waveShaper' | 'destination';
 
 export class FakeAudioNode {
   readonly outputs: FakeAudioNode[] = [];
@@ -288,6 +289,52 @@ export class FakeBiquadFilterNode extends FakeAudioNode {
   }
 }
 
+export class FakeDynamicsCompressorNode extends FakeAudioNode {
+  readonly threshold = new FakeAudioParam('threshold', -24, this.context);
+  readonly knee = new FakeAudioParam('knee', 30, this.context);
+  readonly ratio = new FakeAudioParam('ratio', 12, this.context);
+  readonly attack = new FakeAudioParam('attack', 0.003, this.context);
+  readonly release = new FakeAudioParam('release', 0.25, this.context);
+
+  constructor(context: FakeAudioContext) {
+    super('compressor', context);
+  }
+}
+
+export class FakeWaveShaperNode extends FakeAudioNode {
+  oversample: OverSampleType = 'none';
+  private shape: Float32Array | null = null;
+
+  constructor(context: FakeAudioContext) {
+    super('waveShaper', context);
+  }
+
+  get curve(): Float32Array | null {
+    return this.shape;
+  }
+
+  /**
+   * A real WaveShaper refuses a curve of fewer than two points - there is
+   * nothing to interpolate between - and reads every point as a number, so a
+   * non-finite one poisons the output silently.
+   */
+  set curve(next: Float32Array | null) {
+    if (next) {
+      if (next.length < 2) {
+        refuse(this.context, new RangeError('WaveShaper.curve: needs at least 2 points'));
+      }
+      const bad = next.findIndex((point) => !Number.isFinite(point));
+      if (bad !== -1) {
+        refuse(
+          this.context,
+          new TypeError(`WaveShaper.curve: point ${bad} is ${String(next[bad])}`),
+        );
+      }
+    }
+    this.shape = next;
+  }
+}
+
 export class FakeAudioContext {
   currentTime = 0;
   readonly sampleRate = 48000;
@@ -348,6 +395,16 @@ export class FakeAudioContext {
   createBufferSource(): FakeAudioBufferSourceNode {
     this.assertOpen();
     return new FakeAudioBufferSourceNode(this);
+  }
+
+  createDynamicsCompressor(): FakeDynamicsCompressorNode {
+    this.assertOpen();
+    return new FakeDynamicsCompressorNode(this);
+  }
+
+  createWaveShaper(): FakeWaveShaperNode {
+    this.assertOpen();
+    return new FakeWaveShaperNode(this);
   }
 
   createBuffer(channels: number, length: number, sampleRate: number): FakeAudioBuffer {

@@ -38,7 +38,8 @@ describe('unlock', () => {
     expect(fake.resumeCalls).toBe(1);
     expect(fake.state).toBe('running');
     const master = gains(fake)[0];
-    expect(master?.outputs).toEqual([fake.destination]);
+    // The mix reaches the destination through the output stage, never around it.
+    expect(master?.reaches(fake.destination)).toBe(true);
     expect(master?.gain.value).toBeGreaterThan(0);
 
     await audio.unlock();

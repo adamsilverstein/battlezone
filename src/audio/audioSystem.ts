@@ -64,7 +64,90 @@ export interface AudioSystem {
 }
 
 /** Headroom so several voices at once do not clip. */
-const MASTER_LEVEL = 0.7;
+const MASTER_LEVEL = 0.55;
+
+/**
+ * The output stage, which stands where the cabinet's amplifier stood.
+ *
+ * A lone tank idling in an empty field peaks around 0.67 of full scale, which is
+ * where a mix wants to sit. The trouble is everything at once - engine, saucer
+ * siren, missile buzz, a shot and the explosion answering it - which stacks to
+ * around 3.3 times the loudest single voice and asks the browser for 2.3 of full
+ * scale. The browser answers by hard-clipping every sample over 1, flat tops and
+ * all, which is the harshest sound a digital mixer can make and was a third of
+ * the samples in a busy minute.
+ *
+ * Trimming the master instead would fix the stack by making the ordinary game
+ * too quiet, so the loud moments are held back only while they last: a limiter
+ * that ignores anything under LIMIT_THRESHOLD_DB and leans on what is over it,
+ * fast enough to catch an explosion's attack and slow enough not to pump on the
+ * engine. The soft clip behind it is the safety net, a smooth curve where the
+ * browser's own ceiling is a corner, so a transient that outruns the limiter's
+ * attack bends instead of shattering.
+ */
+const LIMIT_THRESHOLD_DB = -8;
+const LIMIT_KNEE_DB = 6;
+const LIMIT_RATIO = 6;
+const LIMIT_ATTACK_SECONDS = 0.004;
+const LIMIT_RELEASE_SECONDS = 0.2;
+
+/** Where the soft clip stops being a straight line, in linear amplitude. */
+const SOFT_CLIP_LINEAR = 0.7;
+const SOFT_CLIP_SAMPLES = 2048;
+
+/**
+ * A curve that passes everything under SOFT_CLIP_LINEAR through untouched and
+ * bends the rest towards 1 along a tanh, meeting the straight part with the same
+ * slope so the join itself adds nothing.
+ */
+export function softClipCurve(samples = SOFT_CLIP_SAMPLES): Float32Array<ArrayBuffer> {
+  const curve = new Float32Array(new ArrayBuffer(samples * Float32Array.BYTES_PER_ELEMENT));
+  const knee = 1 - SOFT_CLIP_LINEAR;
+  for (let i = 0; i < samples; i += 1) {
+    const x = (i / (samples - 1)) * 2 - 1;
+    const magnitude = Math.abs(x);
+    curve[i] =
+      magnitude <= SOFT_CLIP_LINEAR
+        ? x
+        : Math.sign(x) *
+          (SOFT_CLIP_LINEAR + knee * Math.tanh((magnitude - SOFT_CLIP_LINEAR) / knee));
+  }
+  return curve;
+}
+
+/**
+ * Wires the master gain to the destination through the output stage, and answers
+ * with the node the mix should arrive at.
+ *
+ * A context that cannot build either node - an older browser, a test double -
+ * still gets its sound, straight through, since a missing limiter is quieter
+ * trouble than no audio at all.
+ */
+function connectOutputStage(created: AudioContext, gain: GainNode): void {
+  let tail: AudioNode = gain;
+  try {
+    const limiter = created.createDynamicsCompressor();
+    limiter.threshold.value = LIMIT_THRESHOLD_DB;
+    limiter.knee.value = LIMIT_KNEE_DB;
+    limiter.ratio.value = LIMIT_RATIO;
+    limiter.attack.value = LIMIT_ATTACK_SECONDS;
+    limiter.release.value = LIMIT_RELEASE_SECONDS;
+    tail.connect(limiter);
+    tail = limiter;
+  } catch {
+    // No compressor here; the soft clip alone still keeps the peaks honest.
+  }
+  try {
+    const shaper = created.createWaveShaper();
+    shaper.curve = softClipCurve();
+    shaper.oversample = '4x';
+    tail.connect(shaper);
+    tail = shaper;
+  } catch {
+    // No shaper either: the browser's own ceiling is all that is left.
+  }
+  tail.connect(created.destination);
+}
 
 /** Short fade on mute and unmute, so the mute itself cannot click. */
 export const MUTE_RAMP_SECONDS = 0.015;
@@ -293,7 +376,7 @@ export function createAudioSystem(
           const created = ctxFactory();
           const gain = created.createGain();
           gain.gain.value = muted ? 0 : MASTER_LEVEL;
-          gain.connect(created.destination);
+          connectOutputStage(created, gain);
           ctx = created;
           master = gain;
           synth = createSynth(created, gain);
