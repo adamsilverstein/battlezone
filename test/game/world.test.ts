@@ -6,6 +6,7 @@ import {
   PLAYER_OBSTACLE_RADIUS,
   RADAR_SWEEP_PER_TICK,
   RADAR_SWEEP_TICKS_PER_REV,
+  SHELL_STEP_UNITS,
 } from '../../src/data/constants';
 import { TAU, wrapAngle } from '../../src/engine/math';
 import { createRng } from '../../src/engine/rng';
@@ -126,7 +127,7 @@ describe('updateWorld', () => {
     systems.push(() => [{ type: 'saucerAppeared' }]);
     expect(updateWorld(world, sticks(1, 1), createRng(1))).toEqual<GameEvent[]>([
       { type: 'motionBlocked' },
-      { type: 'shellExpired' },
+      { type: 'shellExpired', owner: 'enemy', pos: { x: 0, z: SHELL_STEP_UNITS } },
       { type: 'saucerAppeared' },
     ]);
   });

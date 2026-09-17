@@ -84,8 +84,14 @@ export function updateShells(world: World): GameEvent[] {
         z: wrapCoordinate(shell.pos.z + stepZ),
       };
       shell.ticksLeft -= TICKS_PER_SUB_STEP;
-      if (shellHitsObstacle(shell, world.obstacles)) ended = { type: 'shellHitObstacle' };
-      else if (shell.ticksLeft <= 0) ended = { type: 'shellExpired' };
+      // Both events carry whose shell it was and the sub-step position it ended
+      // on, which is where the burst picture goes and what the sound needs.
+      const type = shellHitsObstacle(shell, world.obstacles)
+        ? 'shellHitObstacle'
+        : shell.ticksLeft <= 0
+          ? 'shellExpired'
+          : null;
+      if (type) ended = { type, owner: shell.owner, pos: { ...shell.pos } };
     }
 
     if (ended) events.push(ended);

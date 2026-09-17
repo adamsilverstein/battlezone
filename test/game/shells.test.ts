@@ -3,8 +3,10 @@ import {
   SHELL_LIFE_TICKS,
   SHELL_RANGE_UNITS,
   SHELL_SPEED_UNITS_PER_TICK,
+  SHELL_STEP_UNITS,
   WORLD_SIZE,
 } from '../../src/data/constants';
+import { shellHitRadius } from '../../src/game/obstacles';
 import { firePlayerShell, updateShells } from '../../src/game/shells';
 import type { GameEvent, Obstacle, Shell, World } from '../../src/game/types';
 
@@ -117,7 +119,9 @@ describe('updateShells', () => {
     const world = makeWorld();
     firePlayerShell(world);
     const { events, ticks } = runUntilEvent(world);
-    expect(events).toEqual<GameEvent[]>([{ type: 'shellExpired' }]);
+    expect(events).toEqual<GameEvent[]>([
+      { type: 'shellExpired', owner: 'player', pos: { x: 0, z: SHELL_RANGE_UNITS } },
+    ]);
     expect(ticks).toBe(Math.ceil(SHELL_LIFE_TICKS));
     expect(world.shells).toEqual([]);
   });
@@ -139,7 +143,14 @@ describe('updateShells', () => {
     const world = makeWorld([obstacle('box', 5000)]);
     firePlayerShell(world);
     const { events } = runUntilEvent(world);
-    expect(events).toEqual<GameEvent[]>([{ type: 'shellHitObstacle' }]);
+    // The burst is reported at the sub-step it stopped on, which is the first one
+    // inside the box's PRXTBL radius - that is where the picture gets drawn.
+    expect(events).toEqual<GameEvent[]>([
+      { type: 'shellHitObstacle', owner: 'player', pos: { x: 0, z: 19 * SHELL_STEP_UNITS } },
+    ]);
+    const gap = 5000 - 19 * SHELL_STEP_UNITS;
+    expect(gap).toBeLessThan(shellHitRadius('box'));
+    expect(gap + SHELL_STEP_UNITS).toBeGreaterThan(shellHitRadius('box'));
     expect(world.shells).toEqual([]);
   });
 
@@ -147,7 +158,9 @@ describe('updateShells', () => {
     const world = makeWorld([obstacle('boxShort', 5000)]);
     firePlayerShell(world);
     const { events } = runUntilEvent(world);
-    expect(events).toEqual<GameEvent[]>([{ type: 'shellExpired' }]);
+    expect(events).toEqual<GameEvent[]>([
+      { type: 'shellExpired', owner: 'player', pos: { x: 0, z: SHELL_RANGE_UNITS } },
+    ]);
   });
 
   it('cannot tunnel through an obstacle at any range', () => {
@@ -157,7 +170,10 @@ describe('updateShells', () => {
       const world = makeWorld([obstacle('pyramid', z)]);
       firePlayerShell(world);
       const { events } = runUntilEvent(world);
-      expect(events, `pyramid at ${z}`).toEqual<GameEvent[]>([{ type: 'shellHitObstacle' }]);
+      expect(
+        events.map((e) => e.type),
+        `pyramid at ${z}`,
+      ).toEqual(['shellHitObstacle']);
     }
   });
 
@@ -167,7 +183,9 @@ describe('updateShells', () => {
       { id: 1, owner: 'enemy', pos: { x: 0, z: 0 }, y: 0, heading: 0, ticksLeft: 10 },
     ];
     const { events } = runUntilEvent(world);
-    expect(events).toEqual<GameEvent[]>([{ type: 'shellHitObstacle' }]);
+    expect(events).toEqual<GameEvent[]>([
+      { type: 'shellHitObstacle', owner: 'enemy', pos: { x: 0, z: 19 * SHELL_STEP_UNITS } },
+    ]);
   });
 
   it('wraps across the edge of the playfield', () => {
@@ -178,6 +196,21 @@ describe('updateShells', () => {
     expect(world.shells[0]!.pos.z).toBeCloseTo(-WORLD_SIZE / 2, 6);
   });
 
+  it('reports the event against a copy of the position, not the live shell', () => {
+    const world = makeWorld([obstacle('box', 1000)]);
+    world.shells = [
+      { id: 1, owner: 'player', pos: { x: 0, z: 0 }, y: 0, heading: 0, ticksLeft: 10 },
+    ];
+    const shell = world.shells[0]!;
+    const [event] = updateShells(world);
+    shell.pos.z = 99999;
+    expect(event).toEqual<GameEvent>({
+      type: 'shellHitObstacle',
+      owner: 'player',
+      pos: { x: 0, z: 3 * SHELL_STEP_UNITS },
+    });
+  });
+
   it('reports one event per shell that ends', () => {
     const world = makeWorld([obstacle('box', 1000)]);
     world.shells = [
@@ -185,7 +218,10 @@ describe('updateShells', () => {
       { id: 2, owner: 'enemy', pos: { x: 0, z: 0 }, y: 0, heading: 0, ticksLeft: 0.25 },
     ];
     const events = updateShells(world);
-    expect(events).toEqual<GameEvent[]>([{ type: 'shellHitObstacle' }, { type: 'shellExpired' }]);
+    expect(events).toEqual<GameEvent[]>([
+      { type: 'shellHitObstacle', owner: 'player', pos: { x: 0, z: 3 * SHELL_STEP_UNITS } },
+      { type: 'shellExpired', owner: 'enemy', pos: { x: 0, z: SHELL_STEP_UNITS } },
+    ]);
     expect(world.shells).toEqual([]);
   });
 });
