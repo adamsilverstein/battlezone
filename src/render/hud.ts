@@ -8,11 +8,12 @@
  * window to the whole screen for exactly these elements, which is why the score
  * can sit above the battlefield and the reticle can cross it.
  *
- * Positions come from the ROM string table (`MESSAGES` in `data/pictures.ts`,
- * whose coordinates are quarter units) and from `data/constants.ts`; the shapes
+ * Positions and sizes come from the ROM string table, which `render/messages.ts`
+ * owns along with the string and picture primitives the HUD shares with the
+ * full-screen displays; the rest comes from `data/constants.ts`, and the shapes
  * are the vector-ROM pictures.  Stroke intensities are the ROM's nibbles read on
- * the vector generator's 0..15 scale, matching how the reference reads them
- * (twice the values noted in the generated picture comments, the same convention
+ * the vector generator's 0..15 scale, matching how the reference reads them (twice
+ * the values noted in the generated picture comments, the same convention
  * `render/scene.ts` uses for the backdrop).
  */
 
@@ -30,28 +31,16 @@ import {
   RADAR_RADIUS,
   RADAR_SWEEP_PER_TICK,
   RETICLE_BLINK_TICKS,
-  SCORE_BCD_BYTES,
   SCORE_TRAILING_ZEROS,
-  SCORE_UNIT,
   TANGLE_UNIT_RADIANS,
 } from '../data/constants';
-import {
-  LIVES_TANK,
-  MESSAGES,
-  RADAR,
-  RETICLE_LOCKED,
-  RETICLE_NORMAL,
-  type MessageEntry,
-} from '../data/pictures';
-import type { Picture2D } from '../data/types';
+import { LIVES_TANK, RADAR, RETICLE_LOCKED, RETICLE_NORMAL } from '../data/pictures';
 import { wrapAngle } from '../engine/math';
 import { bearingTo, octagonalDistance } from '../game/collision';
+import { playerShellInFlight } from '../game/shells';
 import type { Enemy, World } from '../game/types';
-import { drawText } from './text';
+import { SCORE_DIGITS, drawMessage, drawPicture, message, scoreDigits } from './messages';
 import type { VectorDisplay } from './vectorDisplay';
-
-/** Text is drawn at intensity 12 (reference section 6). */
-const TEXT_INTENSITY = 12 / INTENSITY_MAX;
 
 /** The reserve-tank icon is drawn at intensity 12 (reference section 1). */
 const LIVES_INTENSITY = 12 / INTENSITY_MAX;
@@ -73,63 +62,9 @@ const INTENSITY_BYTE_MAX = 0xff;
 const RETICLE_INTENSITY = 6 / INTENSITY_MAX;
 const RETICLE_LOCKED_INTENSITY = 14 / INTENSITY_MAX;
 
-/** Message positions are stored in quarter units (`MessageEntry`). */
-const MESSAGE_POSITION_SCALE = 4;
-
-/**
- * Strings up to index `$12` are drawn at the ROM's SCAL 2, half the size of the
- * rest (`DrawStringPtr`, reference section 6).  One font cell at full size is the
- * 24-unit advance `render/text.ts` draws at scale 1.
- */
-const HALF_SIZE_LAST_INDEX = 0x12;
-const FULL_SIZE_SCALE = 1;
-const HALF_SIZE_SCALE = 0.5;
-
-/** Four BCD digits are drawn into the gap in the score strings. */
-const SCORE_DIGITS = SCORE_BCD_BYTES * 2;
-
-const MESSAGES_BY_LABEL = new Map(MESSAGES.map((m) => [m.label, m]));
-
-function message(label: string): MessageEntry {
-  const entry = MESSAGES_BY_LABEL.get(label);
-  if (!entry) throw new Error(`hud: no message labelled ${label}`);
-  return entry;
-}
-
 const SCORE = message('YSCORE');
 const HIGH_SCORE = message('CHISCR');
 const ENEMY_IN_RANGE = message('ERANGE');
-
-/** Draws a 2D picture with its ROM coordinates offset to (dx, dy). */
-function drawPicture(
-  d: VectorDisplay,
-  picture: Picture2D,
-  dx: number,
-  dy: number,
-  intensity: number,
-): void {
-  for (const stroke of picture.polylines) {
-    d.polyline(
-      stroke.map(([x, y]) => [x + dx, y + dy] as const),
-      intensity,
-    );
-  }
-}
-
-/**
- * Draws one ROM string at its stored position and size, with `text` substituted
- * for the ROM's own (the score strings carry their digits).
- */
-function drawMessage(d: VectorDisplay, entry: MessageEntry, text: string): void {
-  drawText(
-    d,
-    text,
-    entry.x * MESSAGE_POSITION_SCALE,
-    entry.y * MESSAGE_POSITION_SCALE,
-    entry.index <= HALF_SIZE_LAST_INDEX ? HALF_SIZE_SCALE : FULL_SIZE_SCALE,
-    { intensity: TEXT_INTENSITY },
-  );
-}
 
 /**
  * The score strings end in a literal "000" with a four-cell gap in front of it;
@@ -138,10 +73,8 @@ function drawMessage(d: VectorDisplay, entry: MessageEntry, text: string): void 
  * (`DrawNDigits`, reference section 1).
  */
 function withScore(template: string, score: number): string {
-  const units = Math.min(Math.floor(score / SCORE_UNIT), 10 ** SCORE_DIGITS - 1);
-  const digits = (units === 0 ? '' : String(units)).padStart(SCORE_DIGITS, ' ');
   const end = template.length - SCORE_TRAILING_ZEROS;
-  return template.slice(0, end - SCORE_DIGITS) + digits + template.slice(end);
+  return template.slice(0, end - SCORE_DIGITS) + scoreDigits(score) + template.slice(end);
 }
 
 /** Screen position of a point `radius` from the radar centre, `bearing` clockwise from ahead. */
@@ -219,7 +152,15 @@ export function drawReticle(d: VectorDisplay, locked: boolean): void {
   );
 }
 
-/** One `TSYMBL` tank icon per remaining life, left to right. */
+/**
+ * One `TSYMBL` tank icon per remaining life, left to right.
+ *
+ * `INFO` draws exactly `LIVES` icons and none at all when `LIVES` is zero -
+ * "OUTPUT 1 TANK PER LIFE" (BZONE.MAC.txt:8287-8299) - and `LIVES` still counts
+ * the tank being played, since it is decremented on the hit that kills it and the
+ * game is over when it reaches zero (BZONE.MAC.txt:4607-4611).  So a fresh game on
+ * three lives shows three icons, not two.
+ */
 function drawReserveTanks(d: VectorDisplay, lives: number): void {
   const [x, y] = LIVES_ICON_ORIGIN;
   for (let life = 0; life < lives; life += 1) {
@@ -238,33 +179,47 @@ function flashOn(tick: number): boolean {
  * once the gun is loaded again.  An enemy shell does not blink it.
  */
 function reticleVisible(world: World, blinkTick: number): boolean {
-  const firing = world.shells.some((shell) => shell.owner === 'player');
-  if (!firing) return true;
+  if (!playerShellInFlight(world)) return true;
   return Math.floor(blinkTick / RETICLE_BLINK_TICKS) % 2 === 0;
 }
 
 /**
  * Draws the whole status strip and, unless the caller says otherwise, the reticle.
  *
- * `opts.showReticle` is false while the attract logo is on screen, which is the
- * one case the ROM leaves the gunsight off (BZONE.MAC.txt:961-965).  The range
- * alert needs no such switch: `world.enemyInRange` is only set while a game is
- * being played.  `opts.blinkTick` is the frame counter the message flash and the
- * reticle blink are phased from, and `opts.highScore` is the number the HIGH
- * SCORE line shows - the best of the table and the current score, which only the
+ * Three of the elements are switched from outside, because the ROM reaches them
+ * through a frame this function knows nothing about:
+ *
+ * * `showReticle` is false behind the attract logo, the one case the ROM leaves
+ *   the gunsight off (BZONE.MAC.txt:961-965), and off wherever the radar is;
+ * * `showRadar` is false once the player is hit - `MAIN` jumps to `WNSHLD`
+ *   instead of drawing the radar and the reticle at all (BZONE.MAC.txt:961-965) -
+ *   and on the high score displays, which replace the frame `DRADAR` belongs to;
+ * * `showAlert` is false in the same places: `EIRNGE` is emitted from that same
+ *   stretch of `MAIN`, so a frozen world cannot leave "ENEMY IN RANGE" burning
+ *   over the crack or over the initials the player is entering.
+ *
+ * All three default to true.  `blinkTick` is the frame counter the message flash
+ * and the reticle blink are phased from, and `highScore` is the number the HIGH
+ * SCORE line shows - the best of the table and the score in hand, which only the
  * game state knows.
  */
 export function drawHud(
   d: VectorDisplay,
   world: World,
-  opts: { showReticle: boolean; blinkTick: number; highScore: number },
+  opts: {
+    showReticle: boolean;
+    blinkTick: number;
+    highScore: number;
+    showRadar?: boolean;
+    showAlert?: boolean;
+  },
 ): void {
-  drawRadar(d, world);
+  if (opts.showRadar ?? true) drawRadar(d, world);
   drawReserveTanks(d, world.lives);
   drawMessage(d, SCORE, withScore(SCORE.text, world.score));
   drawMessage(d, HIGH_SCORE, withScore(HIGH_SCORE.text, opts.highScore));
 
-  if (world.enemyInRange && flashOn(opts.blinkTick)) {
+  if ((opts.showAlert ?? true) && world.enemyInRange && flashOn(opts.blinkTick)) {
     drawMessage(d, ENEMY_IN_RANGE, ENEMY_IN_RANGE.text);
   }
 

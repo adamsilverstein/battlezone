@@ -191,6 +191,8 @@ describe('a closed context', () => {
       audio.update(SILENT);
       audio.setMuted(true);
     }).not.toThrow();
-    await expect(audio.unlock()).resolves.toBeUndefined();
+    // A closed context can never be resumed, and unlock says so rather than
+    // letting a caller believe sound is running.
+    await expect(audio.unlock()).resolves.toBe(false);
   });
 });

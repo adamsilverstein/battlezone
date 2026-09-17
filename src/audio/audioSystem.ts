@@ -45,8 +45,13 @@ import {
 import { startSaucerHover, type SaucerHoverVoice } from './sounds/saucerHover';
 
 export interface AudioSystem {
-  /** Resumes the context on the first user gesture. Inert before that. */
-  unlock(): Promise<void>;
+  /**
+   * Resumes the context on a user gesture, and reports whether it is now running.
+   * A browser can refuse the first gesture - a keydown that is part of a chord, a
+   * page that is not yet visible - so a caller that removes its listeners has to
+   * wait for a true here rather than for the first call.
+   */
+  unlock(): Promise<boolean>;
   handle(event: GameEvent): void;
   update(snapshot: AudioSnapshot): void;
   /** The original's hard mute, used for attract mode. */
@@ -191,7 +196,7 @@ export function createAudioSystem(
   }
 
   return {
-    async unlock(): Promise<void> {
+    async unlock(): Promise<boolean> {
       if (!ctx) {
         try {
           const created = ctxFactory();
@@ -206,7 +211,7 @@ export function createAudioSystem(
           ctx = null;
           master = null;
           synth = null;
-          return;
+          return false;
         }
       }
       try {
@@ -214,6 +219,7 @@ export function createAudioSystem(
       } catch {
         // Autoplay policy or a closed context: the next gesture can try again.
       }
+      return ctx.state === 'running';
     },
 
     handle(event: GameEvent): void {
@@ -297,6 +303,9 @@ export function createAudioSystem(
 
     // Attract mode's hard mute is the state machine's call; nothing here infers it.
     setMuted(m: boolean): void {
+      // Re-muting an already muted system would start a fresh fade and stop the
+      // voices again every tick, so an unchanged value is not an event.
+      if (m === muted) return;
       muted = m;
       if (!ctx || !master) return;
       const at = now();

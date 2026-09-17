@@ -145,6 +145,13 @@ export interface GameState {
   entry?: { initials: string; cursor: number; score: number };
   /** Overlay text such as 'GAME OVER'. */
   message?: string;
+  /**
+   * Bumped whenever the player has been put somewhere rather than having driven
+   * there - a respawn, a demo reset, a new battlefield.  The renderer interpolates
+   * between ticks and has no other way to tell a teleport from a very fast drive,
+   * so it watches this and snaps instead of sliding the camera across the field.
+   */
+  cameraSnap?: number;
 }
 
 /** Continuous state the audio system needs every frame. */

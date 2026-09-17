@@ -2,6 +2,16 @@
  * Composes a frame for a `GameState`: the backdrop, the battlefield, the HUD and,
  * while the player is dead, the shattered windshield over the lot.
  *
+ * WHICH DISPLAY THE PHASE ASKS FOR
+ * --------------------------------
+ * `MAIN` "branch[es] away to the high score or attract display if either is
+ * active" before it draws anything of the 3D view, so the high score table and the
+ * initials editor replace the frame rather than sitting over it; everything else is
+ * the battlefield with something drawn on top of it - the flying logo on the title,
+ * `GAME OVER` at the end of a game, the crack while the player is dead.  The
+ * copyright line and `PRESS START` go on whenever a game is not being played
+ * (docs/reference/original-game.md sections 4 and 6).
+ *
  * Interpolation lives here and nowhere else.  The simulation runs at 15.625 Hz
  * and stores no render state, so the renderer keeps its own snapshot of the
  * previous two ticks and blends them by `alpha`, the fraction of the pending tick
@@ -17,7 +27,7 @@
  * an entity is new, since there is nothing truthful to blend from.
  */
 
-import { CRACK_GROUPS, EYE_HEIGHT_UNITS } from '../data/constants';
+import { CRACK_GROUPS, DEFAULT_OPTIONS, EYE_HEIGHT_UNITS } from '../data/constants';
 import type { Debris, Enemy, GameState, Shell, World } from '../game/types';
 import { clamp, lerp, wrapAngle } from '../engine/math';
 import type { Camera } from './camera';
@@ -25,6 +35,14 @@ import { drawCrack } from './crack';
 import { drawHud } from './hud';
 import { drawWorldObjects } from './objects';
 import { drawHorizon } from './scene';
+import {
+  drawCopyright,
+  drawGameOver,
+  drawHighScoreTable,
+  drawInitialsEntry,
+  drawPressStart,
+  drawTitle,
+} from './screens';
 import type { VectorDisplay } from './vectorDisplay';
 
 /** Where something was at the end of a tick: ground position, height and yaw. */
@@ -94,6 +112,9 @@ export function createRenderer(d: VectorDisplay): {
   // NaN so the first render always takes the "new tick" path and seeds both ends,
   // which is why this placeholder is never actually drawn from.
   let lastTick = Number.NaN;
+  let lastPhase: GameState['phase'] | null = null;
+  let lastPhaseTicks = Number.NaN;
+  let lastCameraSnap = Number.NaN;
   let previous: Snapshot = {
     camera: { x: 0, z: 0, y: EYE_HEIGHT_UNITS, heading: 0 },
     entities: new Map(),
@@ -104,16 +125,38 @@ export function createRenderer(d: VectorDisplay): {
     render(state: GameState, alpha: number): void {
       const { world } = state;
       const { tick } = world;
-      if (tick !== lastTick) {
+      // Things the blend cannot follow: a phase that has just begun, and anything
+      // the state machine put down by hand - a respawn, a demo reset, a fresh
+      // battlefield - which it reports by bumping `cameraSnap`.  Neither can be
+      // inferred from the world alone: a respawn happens on a tick that looks
+      // perfectly consecutive, and on the very tick the crack ends the world does
+      // not advance at all, so waiting for the next tick to notice would leave the
+      // camera sweeping across the field one tick late.
+      const snapRequested =
+        state.phase !== lastPhase ||
+        state.phaseTicks === 0 ||
+        (state.cameraSnap ?? 0) !== lastCameraSnap;
+      lastPhase = state.phase;
+      lastCameraSnap = state.cameraSnap ?? 0;
+
+      if (tick !== lastTick || snapRequested) {
         const snapshot = snapshotOf(world);
         // Only consecutive ticks are worth blending. When the loop catches up
         // several ticks before a render, or the world is replaced outright, the
         // held snapshot is stale and interpolating from it would rewind
         // everything; snap to the new state instead.
-        previous = tick === lastTick + 1 ? current : snapshot;
+        previous = tick === lastTick + 1 && !snapRequested ? current : snapshot;
         current = snapshot;
         lastTick = tick;
+      } else if (state.phaseTicks !== lastPhaseTicks) {
+        // A game tick passed and the world did not move: it is frozen, as it is
+        // through the crack and under GAME OVER. There is nothing left to
+        // interpolate towards, and the loop's alpha keeps cycling regardless, so
+        // holding the two ends apart would saw-tooth the view between two ticks it
+        // has already left behind. Collapsing them pins it.
+        previous = current;
       }
+      lastPhaseTicks = state.phaseTicks;
 
       /** An entity's transform this frame: blended if it was here last tick. */
       const at = (key: string, now: Transform): Transform => {
@@ -146,19 +189,63 @@ export function createRenderer(d: VectorDisplay): {
         }),
       };
 
+      // The table is not guaranteed to be sorted, so take the best of it, and of
+      // the score in hand once the player has passed it.
+      const highScore = Math.max(...state.highScores.map((entry) => entry.score), world.score);
+      // A game holds the screen from the start button until the GAME OVER message
+      // has had its time: the copyright line and PRESS START stay off for all of
+      // it, and the start button does nothing during the hold, so inviting a press
+      // there would be a lie.
+      const inPlay =
+        state.phase === 'playing' || state.phase === 'playerDead' || state.phase === 'gameOver';
+      // `MAIN` jumps to `WNSHLD` the moment the player is hit and never reaches
+      // the radar, the reticle or the range alert again while the crack is up
+      // (BZONE.MAC.txt:961-965).  The world is frozen from that point through
+      // GAME OVER as well, so a radar drawn from it would hold a motionless sweep
+      // and "ENEMY IN RANGE" would burn steadily over both.
+      const frozenHud = state.phase === 'playerDead' || state.phase === 'gameOver';
+
       d.beginFrame();
-      drawHorizon(d, cam, tick);
-      drawWorldObjects(d, cam, view);
-      drawHud(d, view, {
-        // The ROM draws no gunsight behind the attract logo; everything else
-        // keeps it (BZONE.MAC.txt:961-965).
-        showReticle: state.phase !== 'attractTitle',
-        blinkTick: tick,
-        // The table is not guaranteed to be sorted, so take the best of it, and
-        // of the score in hand once the player has passed it.
-        highScore: Math.max(...state.highScores.map((entry) => entry.score), world.score),
-      });
-      if (state.phase === 'playerDead') drawCrack(d, crackProgress(state.phaseTicks));
+
+      if (state.phase === 'attractHighScores') {
+        drawHighScoreTable(d, state.highScores, {
+          bonusThreshold: DEFAULT_OPTIONS.bonusThreshold,
+        });
+      } else if (state.phase === 'highScoreEntry' && state.entry) {
+        drawInitialsEntry(d, state.entry);
+        drawHud(d, view, {
+          showReticle: false,
+          showRadar: false,
+          showAlert: false,
+          blinkTick: tick,
+          highScore,
+        });
+      } else {
+        drawHorizon(d, cam, tick);
+        drawWorldObjects(d, cam, view);
+        drawHud(d, view, {
+          // The ROM draws no gunsight behind the attract logo; every other display
+          // with a live battlefield under it keeps one.
+          showReticle: state.phase !== 'attractTitle' && !frozenHud,
+          showRadar: !frozenHud,
+          showAlert: !frozenHud,
+          blinkTick: tick,
+          highScore,
+        });
+        if (state.phase === 'attractTitle') drawTitle(d, state.phaseTicks);
+        if (state.phase === 'gameOver') drawGameOver(d, state.message);
+        if (state.phase === 'playerDead') drawCrack(d, crackProgress(state.phaseTicks));
+        // The copyright line and the invitation to play belong to the play area,
+        // which the table and the editor replace outright - and the ROM's
+        // positions for them sit right on top of the table's last row.  The phase
+        // counter drives the flash, because the world stands still on some of
+        // these displays.
+        if (!inPlay) {
+          drawCopyright(d);
+          drawPressStart(d, state.phaseTicks);
+        }
+      }
+
       d.endFrame();
     },
   };

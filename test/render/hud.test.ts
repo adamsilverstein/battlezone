@@ -89,7 +89,13 @@ const playerShell: Shell = {
   ticksLeft: 20,
 };
 
-const HUD_OPTS = { showReticle: true, blinkTick: 0, highScore: 0 };
+const HUD_OPTS = {
+  showReticle: true,
+  blinkTick: 0,
+  highScore: 0,
+  showRadar: true,
+  showAlert: true,
+};
 
 describe('drawRadar', () => {
   it('draws the ROM tick marks and wedge, and no circle', () => {
@@ -276,6 +282,43 @@ describe('drawHud', () => {
     const world = worldWith({ shells: [{ ...playerShell, owner: 'enemy' }] });
     const drawn = keys(hud(world, { blinkTick: RETICLE_BLINK_TICKS }));
     for (const line of pictureKeys(RETICLE_NORMAL)) expect(drawn).toContain(line);
+  });
+
+  it('leaves the radar out for the screens that have no 3D view behind them', () => {
+    const world = worldWith({ enemies: [tankAt(3000, 3000)] });
+    const withRadar = keys(hud(world));
+    const without = keys(hud(world, { showRadar: false }));
+
+    for (const line of keys(record((d) => drawRadar(d, world)))) {
+      expect(withRadar).toContain(line);
+      expect(without).not.toContain(line);
+    }
+    // The score, high score and reserve tanks stay.
+    expect(without.length).toBeGreaterThan(0);
+  });
+
+  it('leaves the range alert out where the ROM never reaches it', () => {
+    const world = worldWith({ enemyInRange: true });
+    const alert = textKeys('ENEMY IN RANGE', -440, 360, 0.5);
+
+    const shown = keys(hud(world, { blinkTick: 0 }));
+    const hidden = keys(hud(world, { blinkTick: 0, showAlert: false }));
+
+    for (const line of alert) {
+      expect(shown).toContain(line);
+      expect(hidden).not.toContain(line);
+    }
+  });
+
+  it('draws one reserve tank per life, counting the tank being played', () => {
+    // `INFO` outputs one TSYMBL per LIVES and nothing at zero
+    // (BZONE.MAC.txt:8287-8299); LIVES still counts the current tank, since it is
+    // decremented by the hit that kills it (BZONE.MAC.txt:4607).
+    const icons = pictureKeys(LIVES_TANK).length;
+    const none = keys(hud(worldWith({ lives: 0 }))).length;
+
+    expect(keys(hud(worldWith({ lives: 3 }))).length - none).toBe(3 * icons);
+    expect(keys(hud(worldWith({ lives: 1 }))).length - none).toBe(icons);
   });
 
   it('keeps every HUD element on the screen', () => {

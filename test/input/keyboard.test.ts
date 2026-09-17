@@ -102,6 +102,27 @@ describe('createKeyboard', () => {
     expect(keyboard.read()).toEqual({ leftTread: 0, rightTread: 0, fire: false, start: false });
   });
 
+  it('cancels a mapped key so the page cannot scroll under the display', () => {
+    const target = new EventTarget();
+    keyboardOn(target);
+
+    for (const code of ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter']) {
+      const event = new KeyboardEvent('keydown', { code, cancelable: true });
+      target.dispatchEvent(event);
+      expect(event.defaultPrevented, code).toBe(true);
+    }
+  });
+
+  it('leaves keys it does not use alone', () => {
+    const target = new EventTarget();
+    keyboardOn(target);
+    const event = new KeyboardEvent('keydown', { code: 'F5', cancelable: true });
+
+    target.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
+  });
+
   it('stops listening and reads neutral after dispose', () => {
     const target = new EventTarget();
     const keyboard = createKeyboard(target);

@@ -28,13 +28,20 @@ function isMapped(code: string): boolean {
  * Tracks held keys on the given target (normally `window`) and reports them as
  * a `RawInput`. Held state, not events, is what the simulation needs, so the
  * listeners only maintain a set and `read()` stays a plain lookup.
+ *
+ * A mapped key's default action is cancelled: Space and the arrows would otherwise
+ * scroll the page out from under the display.
  */
 export function createKeyboard(target: EventTarget): { read(): RawInput; dispose(): void } {
   const heldCodes = new Set<string>();
 
   const onKeyDown = (event: Event): void => {
     const { code } = event as KeyboardEvent;
-    if (isMapped(code)) heldCodes.add(code);
+    if (!isMapped(code)) return;
+    heldCodes.add(code);
+    // Space and the arrows scroll the page and Enter can activate whatever has
+    // focus; the cabinet's controls do none of that, so the key stops here.
+    event.preventDefault();
   };
   const onKeyUp = (event: Event): void => {
     heldCodes.delete((event as KeyboardEvent).code);

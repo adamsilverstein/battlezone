@@ -1,21 +1,35 @@
 import { describe, expect, it } from 'vitest';
-import { CRACK_GROUPS, EYE_HEIGHT_UNITS } from '../../src/data/constants';
+import { CRACK_GROUPS, DEFAULT_OPTIONS, EYE_HEIGHT_UNITS } from '../../src/data/constants';
 import { createAttractWorld } from '../../src/game/world';
 import type { Enemy, GameState, Shell, World } from '../../src/game/types';
 import type { Camera } from '../../src/render/camera';
 import { drawCrack } from '../../src/render/crack';
-import { drawHud } from '../../src/render/hud';
+import { drawHud, drawReticle } from '../../src/render/hud';
 import { drawWorldObjects } from '../../src/render/objects';
 import { createRenderer } from '../../src/render/renderer';
 import { drawHorizon } from '../../src/render/scene';
+import {
+  drawCopyright,
+  drawGameOver,
+  drawHighScoreTable,
+  drawInitialsEntry,
+  drawPressStart,
+  drawTitle,
+} from '../../src/render/screens';
 import { createRecordingDisplay, type RecordedLine } from '../../src/render/vectorDisplay';
 
+/**
+ * A state at `tick`.  `phaseTicks` counts up with the tick rather than sitting at
+ * zero, because zero is the renderer's signal that a phase has just begun and
+ * nothing may be blended across it - the respawn teleport is the case that matters
+ * - and these fixtures are all mid-phase.
+ */
 function stateAt(tick: number, x: number, z: number, heading: number): GameState {
   const world = createAttractWorld();
   world.tick = tick;
   world.player.pos = { x, z };
   world.player.heading = heading;
-  return { phase: 'attractTitle', phaseTicks: 0, world, highScores: [] };
+  return { phase: 'attractTitle', phaseTicks: tick + 1, world, highScores: [] };
 }
 
 /**
@@ -28,16 +42,43 @@ function stateAt(tick: number, x: number, z: number, heading: number): GameState
 function expected(cam: Camera, tick: number, state?: GameState, view?: World): RecordedLine[] {
   const shown = state ?? stateAt(tick, cam.pos.x, cam.pos.z, cam.heading);
   const world = view ?? shown.world;
+  const highScore = Math.max(...shown.highScores.map((e) => e.score), world.score);
+  const inPlay =
+    shown.phase === 'playing' || shown.phase === 'playerDead' || shown.phase === 'gameOver';
+  const frozenHud = shown.phase === 'playerDead' || shown.phase === 'gameOver';
   const d = createRecordingDisplay();
   d.beginFrame();
-  drawHorizon(d, cam, tick);
-  drawWorldObjects(d, cam, world);
-  drawHud(d, world, {
-    showReticle: shown.phase !== 'attractTitle',
-    blinkTick: tick,
-    highScore: Math.max(...shown.highScores.map((e) => e.score), world.score),
-  });
-  if (shown.phase === 'playerDead') drawCrack(d, Math.min(shown.phaseTicks / CRACK_GROUPS, 1));
+
+  if (shown.phase === 'attractHighScores') {
+    drawHighScoreTable(d, shown.highScores, { bonusThreshold: DEFAULT_OPTIONS.bonusThreshold });
+  } else if (shown.phase === 'highScoreEntry' && shown.entry) {
+    drawInitialsEntry(d, shown.entry);
+    drawHud(d, world, {
+      showReticle: false,
+      showRadar: false,
+      showAlert: false,
+      blinkTick: tick,
+      highScore,
+    });
+  } else {
+    drawHorizon(d, cam, tick);
+    drawWorldObjects(d, cam, world);
+    drawHud(d, world, {
+      showReticle: shown.phase !== 'attractTitle' && !frozenHud,
+      showRadar: !frozenHud,
+      showAlert: !frozenHud,
+      blinkTick: tick,
+      highScore,
+    });
+    if (shown.phase === 'attractTitle') drawTitle(d, shown.phaseTicks);
+    if (shown.phase === 'gameOver') drawGameOver(d, shown.message);
+    if (shown.phase === 'playerDead') drawCrack(d, Math.min(shown.phaseTicks / CRACK_GROUPS, 1));
+    if (!inPlay) {
+      drawCopyright(d);
+      drawPressStart(d, shown.phaseTicks);
+    }
+  }
+
   d.endFrame();
   return d.lines;
 }
@@ -95,11 +136,121 @@ describe('createRenderer', () => {
     const d = createRecordingDisplay();
     const renderer = createRenderer(d);
     renderer.render(stateAt(0, 0, 0, 0), 0);
-    renderer.render(stateAt(1, 0, 0, 1), 0);
-    // A second frame in the same tick keeps interpolating from tick 0 to tick 1.
+    renderer.render(stateAt(1, 0, 0, 1), 0.5);
+    // The same tick rendered again keeps blending from tick 0 to tick 1, at
+    // whatever alpha the loop reports.
     renderer.render(stateAt(1, 0, 0, 1), 0.25);
     expect(d.lines).toEqual(
       expected({ pos: { x: 0, z: 0 }, heading: 0.25, eyeHeight: EYE_HEIGHT_UNITS }, 1),
+    );
+  });
+
+  it('holds still when the tick stops advancing, whatever alpha does', () => {
+    const d = createRecordingDisplay();
+    const renderer = createRenderer(d);
+    const moving = stateAt(1, 0, 0, 1);
+    renderer.render(stateAt(0, 0, 0, 0), 0);
+    renderer.render(moving, 0);
+
+    // The world is frozen from here - the crack and GAME OVER both do this - but
+    // the loop keeps cycling alpha. Every frame has to draw the same thing.
+    const frozen = { ...moving, phase: 'playerDead' as const, phaseTicks: 5 };
+    renderer.render(frozen, 0);
+    const first = [...d.lines];
+    for (const alpha of [0.25, 0.5, 0.99]) {
+      renderer.render(frozen, alpha);
+      expect(d.lines, `alpha ${alpha}`).toEqual(first);
+    }
+  });
+
+  it('snaps on the respawn the state machine actually produces', () => {
+    // The real sequence, tick by tick: the player drives, is hit, the world stops
+    // advancing while the crack spreads, and then the respawn puts them down
+    // somewhere else on a tick that does not advance the world either - so a
+    // renderer waiting for the next tick to notice would sweep the camera across
+    // the field one tick late.
+    const alive = stateAt(20, 0, 0, 0);
+    alive.phase = 'playing';
+    alive.phaseTicks = 20;
+
+    const hit = stateAt(21, 300, 0, 0);
+    hit.phase = 'playerDead';
+    hit.phaseTicks = 0;
+
+    const cracking = (phaseTicks: number): GameState => {
+      // The world is frozen: same tick, same place, only the phase counter moves.
+      const state = stateAt(21, 300, 0, 0);
+      state.phase = 'playerDead';
+      state.phaseTicks = phaseTicks;
+      return state;
+    };
+
+    // resetPlayer puts the tank down elsewhere without advancing the world.
+    const respawn = stateAt(21, -9000, 9000, 3);
+    respawn.phase = 'playing';
+    respawn.phaseTicks = 0;
+    respawn.cameraSnap = 1;
+
+    // And the game runs on from there.
+    const running = stateAt(22, -9000, 9000, 3);
+    running.phase = 'playing';
+    running.phaseTicks = 1;
+    running.cameraSnap = 1;
+
+    const d = createRecordingDisplay();
+    const renderer = createRenderer(d);
+    renderer.render(alive, 0);
+    renderer.render(hit, 0);
+    for (const phaseTicks of [1, 2, 3]) renderer.render(cracking(phaseTicks), 0.5);
+
+    renderer.render(respawn, 0.5);
+    const atRespawn = [...d.lines];
+    renderer.render(running, 0.5);
+    const afterRespawn = [...d.lines];
+
+    // Both frames are drawn from where the player now is, with nothing blended in
+    // from where they died.
+    const cam = { pos: { x: -9000, z: 9000 }, heading: 3, eyeHeight: EYE_HEIGHT_UNITS };
+    expect(atRespawn).toEqual(expected(cam, 21, respawn));
+    expect(afterRespawn).toEqual(expected(cam, 22, running));
+  });
+
+  it('snaps when the demo stands its tank back up mid-phase', () => {
+    // A demo death teleports the player while the phase and the ticks both run on,
+    // so the only signal is the counter the state machine bumps.
+    const before = stateAt(40, 2000, 2000, 1);
+    before.phaseTicks = 40;
+    const after = stateAt(41, 0, 0, 0);
+    after.phaseTicks = 41;
+    after.cameraSnap = 7;
+
+    const d = createRecordingDisplay();
+    const renderer = createRenderer(d);
+    renderer.render(before, 0);
+    renderer.render(after, 0.5);
+
+    expect(d.lines).toEqual(
+      expected({ pos: { x: 0, z: 0 }, heading: 0, eyeHeight: EYE_HEIGHT_UNITS }, 41, after),
+    );
+  });
+
+  it('snaps rather than sliding when a phase has just begun', () => {
+    const d = createRecordingDisplay();
+    const renderer = createRenderer(d);
+    // A respawn teleports the player on a tick that looks perfectly consecutive,
+    // so only the fresh phase counter says not to blend across it.
+    renderer.render(stateAt(6, 0, 0, 0), 0);
+    const respawned = stateAt(7, 9000, 9000, 2);
+    respawned.phase = 'playing';
+    respawned.phaseTicks = 0;
+    renderer.render(respawned, 0.5);
+
+    expect(d.lines).toEqual(
+      expected(
+        { pos: { x: 9000, z: 9000 }, heading: 2, eyeHeight: EYE_HEIGHT_UNITS },
+        7,
+        respawned,
+      ),
     );
   });
 
@@ -148,7 +299,9 @@ describe('createRenderer', () => {
     createRenderer(d).render(state, 0);
     expect(d.lines).toEqual(expected(CAM_AT_ORIGIN, 4, state));
     // The order matters: the HUD is drawn last so it sits over the view.
-    expect(d.lines.length).toBeGreaterThan(expected(CAM_AT_ORIGIN, 4).length);
+    const bare = stateAt(4, 0, 0, 0);
+    bare.phase = 'playing';
+    expect(d.lines.length).toBeGreaterThan(expected(CAM_AT_ORIGIN, 4, bare).length);
   });
 
   it('shows the better of the score and the high score table', () => {
@@ -174,16 +327,23 @@ describe('createRenderer', () => {
   });
 
   it('hides the reticle behind the attract logo only', () => {
-    const d = createRecordingDisplay();
-    const renderer = createRenderer(d);
-    const title = stateAt(0, 0, 0, 0);
-    title.phase = 'attractTitle';
-    renderer.render(title, 0);
-    const withoutReticle = d.lines.length;
-    const playing = stateAt(0, 0, 0, 0);
-    playing.phase = 'playing';
-    renderer.render(playing, 0);
-    expect(d.lines.length).toBeGreaterThan(withoutReticle);
+    const reticle = createRecordingDisplay();
+    drawReticle(reticle, false);
+    const keys = (lines: readonly RecordedLine[]): string[] =>
+      lines.map((l) => `${l.x0},${l.y0},${l.x1},${l.y1}`);
+    const frame = (phase: GameState['phase']): string[] => {
+      const d = createRecordingDisplay();
+      const state = stateAt(0, 0, 0, 0);
+      state.phase = phase;
+      createRenderer(d).render(state, 0);
+      return keys(d.lines);
+    };
+
+    for (const line of keys(reticle.lines)) {
+      expect(frame('playing')).toContain(line);
+      expect(frame('attractTitle')).not.toContain(line);
+      expect(frame('attractDemo')).toContain(line);
+    }
   });
 
   it('interpolates enemies and shells between ticks by id', () => {
@@ -284,6 +444,66 @@ describe('createRenderer', () => {
     const dead = { ...playing, phase: 'playerDead' as const };
     renderer.render(dead, 0);
     expect(d.lines.length).toBeGreaterThan(alive);
+  });
+
+  it('replaces the whole frame with the high score table', () => {
+    const state = stateAt(3, 0, 0, 0);
+    state.phase = 'attractHighScores';
+    state.highScores = [{ initials: 'ADS', score: 42000 }];
+    const d = createRecordingDisplay();
+    createRenderer(d).render(state, 0);
+
+    expect(d.lines).toEqual(expected(CAM_AT_ORIGIN, 3, state));
+    // No horizon and no radar behind it.
+    const horizon = createRecordingDisplay();
+    drawHorizon(horizon, CAM_AT_ORIGIN, 3);
+    const keys = (lines: readonly RecordedLine[]): string[] =>
+      lines.map((l) => `${l.x0},${l.y0},${l.x1},${l.y1}`);
+    for (const line of keys(horizon.lines)) expect(keys(d.lines)).not.toContain(line);
+  });
+
+  it('draws the initials editor with the score strip but no radar', () => {
+    const state = stateAt(0, 0, 0, 0);
+    state.phase = 'highScoreEntry';
+    state.entry = { initials: 'AD_', cursor: 1, score: 42000 };
+    const d = createRecordingDisplay();
+    createRenderer(d).render(state, 0);
+
+    expect(d.lines).toEqual(expected(CAM_AT_ORIGIN, 0, state));
+    expect(d.lines.length).toBeGreaterThan(0);
+  });
+
+  it('puts GAME OVER over the battlefield the player just left', () => {
+    const state = stateAt(5, 0, 0, 0);
+    state.phase = 'gameOver';
+    state.message = 'GAME OVER';
+    const d = createRecordingDisplay();
+    createRenderer(d).render(state, 0);
+
+    expect(d.lines).toEqual(expected(CAM_AT_ORIGIN, 5, state));
+    const over = createRecordingDisplay();
+    drawGameOver(over, 'GAME OVER');
+    const keys = (lines: readonly RecordedLine[]): string[] =>
+      lines.map((l) => `${l.x0},${l.y0},${l.x1},${l.y1}`);
+    for (const line of keys(over.lines)) expect(keys(d.lines)).toContain(line);
+  });
+
+  it('flies the logo from the phase counter, not the world tick', () => {
+    const early = stateAt(50, 0, 0, 0);
+    early.phase = 'attractTitle';
+    early.phaseTicks = 4;
+    // Both counts are on a lit beat of the PRESS START flash, so only the logo
+    // differs between them.
+    const late = { ...early, phaseTicks: 32 };
+    const d = createRecordingDisplay();
+    const renderer = createRenderer(d);
+
+    renderer.render(early, 0);
+    const first = d.lines.length;
+    renderer.render(late, 0);
+
+    // "ZONE" has joined the group by then, so there is more on screen.
+    expect(d.lines.length).toBeGreaterThan(first);
   });
 
   it('opens and closes the frame exactly once per render', () => {

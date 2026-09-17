@@ -6,7 +6,10 @@ Notes taken from the surviving Atari source listing for Battlezone (project
 Everything is referenced to a file and line. The listings used are the
 line-ending-normalised copies (`*.MAC.txt`, `*.DOC.txt`), which have a blank line
 between every line of code, so quoted numbers are always the odd-numbered code
-lines. Where a fact could not be established from the source it is called out as
+lines. **The listings are not part of this repository** - they are the published
+Atari sources at <https://github.com/historicalsource/battlezone>, and every
+`BZONE.MAC.txt:NNNN` style citation in the notes and in the code refers to a file
+there. Where a fact could not be established from the source it is called out as
 such rather than guessed.
 
 Cross-checked against Andy McFadden's annotated rev-2 disassembly at

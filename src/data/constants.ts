@@ -9,6 +9,10 @@
  * map).  Those listings are blank-line separated, so quoted line numbers are the
  * odd-numbered code lines.
  *
+ * The listings are not in this repository: they are the Atari sources published at
+ * https://github.com/historicalsource/battlezone, and every `*.MAC.txt:NNNN`
+ * citation in this project refers to a file there.
+ *
  * UNITS
  * -----
  * * Positions are unsigned 16-bit and wrap, so the battlefield is a 65536 x
@@ -990,6 +994,13 @@ export const ATTRACT_TIMOUT_TRIGGER = 4;
 export const ATTRACT_TIMOUT_RELOAD = 3;
 
 /**
+ * The demo pilot drives forward while bit 6 of `FRAME` is clear and reverses while
+ * it is set, so it changes its mind every 64 ticks - about four seconds
+ * (`MOTION` in attract mode, BZONE.MAC.txt:5143-5175).
+ */
+export const ATTRACT_DRIVE_MASK = 0x40;
+
+/**
  * The flying BATTLE ZONE logo.  BATINT starts it at x = 0x0400, z = 0xFC00
  * (-1024); each tick x grows by 0x40 and z by 8, and when z passes 0x200 the
  * sequence restarts (BATTLE/BATINT, BZONE.MAC.txt:1397-1551).  That is 192
@@ -1005,6 +1016,54 @@ export const LOGO_TICKS = 192;
 
 /** The logo is drawn at a fixed bright intensity (`SINT` = 0xF0, BZONE.MAC.txt:1419-1421). */
 export const LOGO_INTENSITY = 0xf0;
+
+/**
+ * The logo letters are "pre-tilted in the shape data (rotate 76 degrees about X
+ * and the logo faces the viewer squarely)" (docs/reference/original-game.md
+ * section 4).  Undoing that rotation stands the three groups up as one flat sign,
+ * which is what `render/screens.ts` projects.
+ */
+export const LOGO_TILT_DEGREES = 76;
+
+/**
+ * "ZONE" is held back until the group has risen past this height, so the words
+ * arrive in sequence - the ROM's reason is that the vector generator cannot draw
+ * all three groups plus the playfield in one 24 ms refresh while they are large.
+ *
+ * The two references disagree on the threshold: `$FCB0` = -848
+ * (docs/reference/original-game.md section 4) against "about -592"
+ * (docs/reference/atari-source-notes.md, "Attract mode").  The byte value is the
+ * more specific of the two, so it is the one used here.
+ */
+export const LOGO_ZONE_HELD_UNTIL = -0x350;
+
+/**
+ * How long `GAME OVER` is held over the battlefield before the score is checked
+ * against the table.
+ *
+ * ESTIMATE: the original has no such hold.  Game over *is* attract mode there -
+ * `CKSCOR` runs the instant the crack sequence ends, and the `GAME OVER` line then
+ * sits on the attract display until someone spends a credit.  This recreation has
+ * a `gameOver` phase of its own, so it holds the message for two seconds, the same
+ * pause the ROM's own crack comment asks for, before moving on.
+ */
+export const GAME_OVER_TICKS = 32;
+
+/**
+ * `PRESS START` flashes at about 2 Hz, off NMI counter bit 6
+ * (docs/reference/original-game.md section 6).
+ *
+ * ESTIMATE: 2 Hz at 15.625 ticks per second is eight ticks lit and eight dark.
+ * The ROM counts NMIs, not game ticks, so the phase is not recoverable.
+ */
+export const PRESS_START_FLASH_TICKS = 8;
+
+/**
+ * Where the three characters being entered are drawn: 18 quarter-units left of
+ * and below centre, i.e. (-72, -72) (BZONE.MAC.txt:1679-1815,
+ * docs/reference/original-game.md section 4).
+ */
+export const INITIALS_ENTRY_ORIGIN = [-72, -72] as const;
 
 // --------------------------------------------------------------------------- //
 // High scores
@@ -1061,6 +1120,23 @@ export const HIGH_SCORE_LINE_X_QUARTERS = -32;
 export const HIGH_SCORE_FIRST_LINE_Y_QUARTERS = 30;
 export const HIGH_SCORE_LINE_SPACING_QUARTERS = 10;
 export const HIGH_SCORE_MAX_TANK_ICONS = 10;
+
+/**
+ * Each line of the table is drawn `SSSS000 III` - eleven characters, 264 units -
+ * and the ROM then backs the beam up 268, so every line starts four units further
+ * left than the one above: a deliberate slight slant
+ * (BZONE.MAC.txt:551c-5537, docs/reference/original-game.md section 4).
+ */
+export const HIGH_SCORE_LINE_X_SLANT = -4;
+
+/**
+ * How wide a tank icon beside a high score is.
+ *
+ * ESTIMATE: derived.  A line carrying an icon backs up 349 rather than 268, and
+ * both have to land on the same next line, so the icon occupies the 81-unit
+ * difference (docs/reference/original-game.md section 4).
+ */
+export const HIGH_SCORE_TANK_ICON_ADVANCE = 81;
 
 // --------------------------------------------------------------------------- //
 // Two-player mode
