@@ -494,7 +494,9 @@ export const BLOCKED_FLASH_MASK = 4;
  * (BZONE.MAC.txt:7287-7295).  These are compared against the full 16-bit
  * MathBox distance.  Only the four obstacle types are non-zero.
  */
-export const OBSTACLE_TANK_RADIUS: Record<string, number> = {
+export type ObstacleModel = 'pyramid' | 'box' | 'pyramidWide' | 'boxShort';
+
+export const OBSTACLE_TANK_RADIUS: Record<ObstacleModel, number> = {
   pyramid: 0x340, // 832
   box: 0x340, // 832
   pyramidWide: 0x400, // 1024
@@ -523,12 +525,15 @@ export const TANK_MISSILE_RADIUS = 0x300;
  * twice, so the unit here is 4 world units (BZONE.MAC.txt:4945-4953).  The short
  * box is 0, so shells fly straight over it.
  */
-export const SHELL_OBSTACLE_RADIUS_QUARTERS: Record<string, number> = {
+export const SHELL_OBSTACLE_RADIUS_QUARTERS: Record<ObstacleModel, number> = {
   pyramid: 56, // 224 units
   box: 88, // 352 units
   pyramidWide: 86, // 344 units
   boxShort: 0, // shells pass over it
 };
+
+/** World units per `PRXTBL` unit: the distance is shifted right twice first. */
+export const SHELL_OBSTACLE_RADIUS_UNIT = 4;
 
 /**
  * Shell vs tank (SHRTCK, BZONE.MAC.txt:4537-4589).  The hit radius depends on
@@ -564,7 +569,7 @@ export const WORLD_SIZE = 0x10000;
  * move and are never re-randomised.
  */
 export interface Obstacle {
-  readonly model: 'pyramid' | 'box' | 'pyramidWide' | 'boxShort';
+  readonly model: ObstacleModel;
   /** Object number used by the original tables. */
   readonly objectNumber: number;
   readonly x: number;
