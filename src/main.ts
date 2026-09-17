@@ -58,16 +58,19 @@ const input = createInput({
 const audio = createAudioSystem();
 
 /**
- * Web Audio stays suspended until the player has touched something - and a given
- * gesture can still be refused, so the listeners come off only once the context
- * confirms it is running.
+ * Web Audio stays suspended until the player has touched something, and a given
+ * gesture can still be refused, so a first key or click is what starts the sound.
+ *
+ * The listeners then stay on for the life of the page rather than coming off at
+ * the first success, because a browser can take the sound away again at any
+ * point - an output device unplugged or switched, an audio service that dies -
+ * and the way back is another gesture. Taking the listeners off once meant the
+ * game fell silent for the rest of the session the first time that happened.
+ * The audio system bounds the retries, so a machine with no working device is
+ * not asked over and over.
  */
 function unlockAudio(): void {
-  void audio.unlock().then((running) => {
-    if (!running) return;
-    window.removeEventListener('keydown', unlockAudio);
-    window.removeEventListener('pointerdown', unlockAudio);
-  });
+  void audio.unlock();
 }
 window.addEventListener('keydown', unlockAudio);
 window.addEventListener('pointerdown', unlockAudio);

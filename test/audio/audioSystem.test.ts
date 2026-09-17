@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { FakeAudioContext, asAudioContext, type FakeScheduledSource } from './fakeAudioContext';
-import { createAudioSystem } from '../../src/audio/audioSystem';
+import {
+  createAudioSystem,
+  MAX_DEVICE_RECOVERIES,
+  MIN_WORKING_SECONDS,
+  type AudioSystem,
+} from '../../src/audio/audioSystem';
 import { LOUD_EXPLOSION_SECONDS, SOFT_EXPLOSION_SECONDS } from '../../src/audio/sounds/explosion';
 import {
   PLAYING,
@@ -60,6 +65,99 @@ describe('unlock', () => {
     const real = new FakeAudioContext();
     const second = createAudioSystem(() => asAudioContext(real));
     expect(await second.unlock()).toBe(true);
+  });
+});
+
+describe('a context the audio device kills', () => {
+  /** Every node bar the destination the context was born with. */
+  function graphSize(fake: FakeAudioContext): number {
+    return fake.nodes.filter((node) => node.kind !== 'destination').length;
+  }
+
+  function playSomething(audio: { handle: AudioSystem['handle']; update: AudioSystem['update'] }) {
+    audio.handle({ type: 'playerFired' });
+    audio.handle({ type: 'radarPing' });
+    audio.update({ ...PLAYING, saucerActive: true, missileActive: true, missileDistance: 5000 });
+  }
+
+  it('stops building into a context whose clock has stopped', async () => {
+    const { fake, audio } = await unlocked();
+    audio.update(PLAYING);
+    const before = graphSize(fake);
+
+    fake.failDevice();
+    // The clock of a failed context never moves again, so everything scheduled
+    // from here lands on one instant and is never rendered.
+    for (let i = 0; i < 20; i += 1) playSomething(audio);
+
+    expect(graphSize(fake)).toBe(before);
+  });
+
+  it('builds a fresh context on the next gesture, since a dead one never comes back', async () => {
+    const { fake, fakes, audio, factoryCalls } = await unlocked();
+    audio.update(PLAYING);
+    // A device that was working and then went away: the clock had been running.
+    fake.advance(MIN_WORKING_SECONDS + 10);
+    fake.failDevice();
+
+    expect(await audio.unlock()).toBe(true);
+    expect(factoryCalls()).toBe(2);
+    // The dead one is let go of rather than left holding its graph.
+    expect(fake.closeCalls).toBe(1);
+
+    const replacement = fakes[1] as FakeAudioContext;
+    expect(replacement.state).toBe('running');
+    playSomething(audio);
+    expect(replacement.activeSources(0).length).toBeGreaterThan(0);
+    // The engine belonged to the dead graph, so the new context gets its own.
+    expect(replacement.violations).toEqual([]);
+  });
+
+  it('gives up once the replacements have been used, rather than asking forever', async () => {
+    const { fakes, audio, factoryCalls } = await unlocked();
+    audio.update(PLAYING);
+
+    // A device that keeps dropping out after playing for a while.
+    const die = (fake: FakeAudioContext): void => {
+      fake.advance(MIN_WORKING_SECONDS + 10);
+      fake.failDevice();
+    };
+    for (let i = 0; i < MAX_DEVICE_RECOVERIES; i += 1) {
+      die(fakes[i] as FakeAudioContext);
+      expect(await audio.unlock()).toBe(true);
+    }
+    expect(factoryCalls()).toBe(MAX_DEVICE_RECOVERIES + 1);
+
+    die(fakes[MAX_DEVICE_RECOVERIES] as FakeAudioContext);
+    expect(await audio.unlock()).toBe(false);
+    expect(await audio.unlock()).toBe(false);
+    expect(factoryCalls()).toBe(MAX_DEVICE_RECOVERIES + 1);
+    expect(() => playSomething(audio)).not.toThrow();
+  });
+
+  it('does not replace a context that never rendered a sound in the first place', async () => {
+    const { fake, audio, factoryCalls } = await unlocked();
+    audio.update(PLAYING);
+
+    // This is the machine with no working output device: the context reports
+    // running, its clock never moves, and the browser gives up on it. Building
+    // another only makes the browser log the same error again.
+    fake.advance(MIN_WORKING_SECONDS / 2);
+    fake.failDevice();
+
+    expect(await audio.unlock()).toBe(false);
+    expect(await audio.unlock()).toBe(false);
+    expect(factoryCalls()).toBe(1);
+  });
+
+  it('leaves a running context alone, however many gestures arrive', async () => {
+    const { fake, audio, factoryCalls } = await unlocked();
+
+    for (let i = 0; i < 50; i += 1) expect(await audio.unlock()).toBe(true);
+
+    expect(factoryCalls()).toBe(1);
+    expect(fake.resumeCalls).toBe(1);
+    expect(fake.closeCalls).toBe(0);
   });
 });
 

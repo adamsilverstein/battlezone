@@ -24,19 +24,26 @@ export const SILENT: AudioSnapshot = {
 export const PLAYING: AudioSnapshot = { ...SILENT, engineRunning: true };
 
 export interface Harness {
+  /** The first context the system builds, and the only one unless it is replaced. */
   fake: FakeAudioContext;
+  /** Every context the system has asked for, in order; a fresh one each time. */
+  fakes: FakeAudioContext[];
   audio: AudioSystem;
   factoryCalls: () => number;
 }
 
 export function harness(): Harness {
   const fake = new FakeAudioContext();
+  const fakes: FakeAudioContext[] = [fake];
   let calls = 0;
   const audio = createAudioSystem(() => {
     calls += 1;
-    return asAudioContext(fake);
+    // A real factory hands back a brand new context every time, which is what a
+    // system recovering from a dead one depends on.
+    if (calls > fakes.length) fakes.push(new FakeAudioContext());
+    return asAudioContext(fakes[calls - 1] as FakeAudioContext);
   });
-  return { fake, audio, factoryCalls: () => calls };
+  return { fake, fakes, audio, factoryCalls: () => calls };
 }
 
 export async function unlocked(): Promise<Harness> {

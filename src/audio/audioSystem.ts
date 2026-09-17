@@ -48,8 +48,13 @@ export interface AudioSystem {
   /**
    * Resumes the context on a user gesture, and reports whether it is now running.
    * A browser can refuse the first gesture - a keydown that is part of a chord, a
-   * page that is not yet visible - so a caller that removes its listeners has to
-   * wait for a true here rather than for the first call.
+   * page that is not yet visible - so a caller has to wait for a true here rather
+   * than for the first call.
+   *
+   * It is also the way back from an audio device that has failed mid-game, so it
+   * is meant to be called on every gesture for the life of the page, not only
+   * until the first one succeeds. A gesture while sound is already running costs
+   * a single property read.
    */
   unlock(): Promise<boolean>;
   handle(event: GameEvent): void;
@@ -63,6 +68,31 @@ const MASTER_LEVEL = 0.7;
 
 /** Short fade on mute and unmute, so the mute itself cannot click. */
 export const MUTE_RAMP_SECONDS = 0.015;
+
+/**
+ * How many times a context the audio device has killed is replaced before the
+ * game stops asking for sound.
+ *
+ * A device that fails once usually fails again the same way - a machine with no
+ * working output device, a sandboxed browser, an audio service that will not
+ * start - and every attempt costs the player another browser error in the
+ * console, so the budget is small. A genuinely transient failure, the common one
+ * being an output device that was unplugged or switched, is back on the first
+ * replacement.
+ */
+export const MAX_DEVICE_RECOVERIES = 2;
+
+/**
+ * How much audio a context has to have rendered before its death is treated as
+ * something worth recovering from.
+ *
+ * A context that dies with its clock still near zero never had a device at all -
+ * a machine with no output, a browser that will not open one - and building
+ * another only makes the browser log the same error again. A context that had
+ * been playing for a while lost a device that was really there, which is the
+ * case worth a second go.
+ */
+export const MIN_WORKING_SECONDS = 1;
 
 function defaultContextFactory(): AudioContext {
   const globals = globalThis as {
@@ -89,9 +119,22 @@ export function createAudioSystem(
   /** End of the current collision warble, so grinding a block cannot retrigger it. */
   let warbleEndsAt = 0;
 
+  /** Set when the context has told us the audio device or the renderer gave up. */
+  let deviceFailed = false;
+  /** How many contexts the device has taken from us so far. */
+  let deviceLosses = 0;
+  /** Set when a failure looked permanent, so no replacement is worth building. */
+  let deviceHopeless = false;
+
   /** The synth, or null when muted, locked or the context has gone away. */
   function ready(): Synth | null {
-    if (!synth || !ctx || muted) return null;
+    // A context the device has killed renders nothing ever again, and its clock
+    // has stopped: every node and automation event aimed at it would be stamped
+    // with that one instant and pile up there for nobody. A context that is
+    // merely suspended is still worth building into - it has a clock that will
+    // move again, and an OfflineAudioContext is suspended for the whole of the
+    // scheduling it exists to receive.
+    if (!synth || !ctx || muted || deviceFailed) return null;
     return ctx.state === 'closed' ? null : synth;
   }
 
@@ -185,6 +228,49 @@ export function createAudioSystem(
   }
 
   /**
+   * A browser answers an audio device or renderer failure by firing `error` on
+   * the context and leaving it suspended with its clock stopped - Chrome also
+   * logs "The AudioContext encountered an error from the audio device or the
+   * WebAudio renderer". Nothing revives that context: `resume()` resolves and it
+   * still renders nothing, so the only way back is to build a new one.
+   */
+  function watchForDeviceFailure(created: AudioContext): void {
+    try {
+      created.addEventListener('error', () => {
+        deviceFailed = true;
+        // The clock is the only honest report of whether this context was ever
+        // working: it only advances while audio is really being rendered.
+        if (created.currentTime < MIN_WORKING_SECONDS) deviceHopeless = true;
+      });
+    } catch {
+      // A context with no event target to listen on; it just cannot be watched.
+    }
+  }
+
+  /** Lets go of a context the device has killed, its whole graph with it. */
+  function discardContext(): void {
+    const dying = ctx;
+    ctx = null;
+    master = null;
+    synth = null;
+    channels = null;
+    // The voices belong to the dead graph; there is nothing left to stop.
+    engine = null;
+    hover = null;
+    buzz = null;
+    warbleEndsAt = 0;
+    deviceFailed = false;
+    deviceLosses += 1;
+    try {
+      void dying?.close().catch(() => {
+        // Already closing, or closed underneath us.
+      });
+    } catch {
+      // A context too broken to close: dropping the reference is enough.
+    }
+  }
+
+  /**
    * The fanfare is two voices at once, so it holds both POKEY channels, and the
    * reference has a loud ~1 s explosion follow it once it finishes - the 100K and
    * high-score boom.
@@ -197,6 +283,11 @@ export function createAudioSystem(
 
   return {
     async unlock(): Promise<boolean> {
+      // The overwhelmingly common case: sound is running and this is just one of
+      // the hundreds of gestures a player makes during a game.
+      if (ctx && !deviceFailed && ctx.state === 'running') return true;
+      if (ctx && deviceFailed) discardContext();
+      if (!ctx && (deviceHopeless || deviceLosses > MAX_DEVICE_RECOVERIES)) return false;
       if (!ctx) {
         try {
           const created = ctxFactory();
@@ -207,10 +298,12 @@ export function createAudioSystem(
           master = gain;
           synth = createSynth(created, gain);
           channels = createChannels(synth);
+          watchForDeviceFailure(created);
         } catch {
           ctx = null;
           master = null;
           synth = null;
+          channels = null;
           return false;
         }
       }
