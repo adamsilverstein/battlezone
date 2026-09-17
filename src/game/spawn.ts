@@ -44,6 +44,8 @@ import {
   MISSILE_START_HEIGHT,
   MISSILE_TIMEOUT_TIMOUT,
   SUPERTANK_AFTER_MISSILES,
+  SUPERTANK_COUNTER_MAX,
+  SUPERTANK_COUNTER_START,
   TANGLE_UNIT_RADIANS,
   TICKS_PER_TIMOUT,
 } from '../data/constants';
@@ -68,9 +70,18 @@ function hasGivenUp(unit: Enemy, brain: EnemyBrain): boolean {
   return brain.aliveTicks >= STALL_TICKS;
 }
 
-/** Which tank the ladder is up to: the supertank takes over after five missiles. */
+/**
+ * Which tank the ladder is up to.  `GetTankType` reads an 8-bit counter that starts
+ * at `$FF` and is incremented on every missile launch, and sends supertanks while it
+ * reads 5 to 127 inclusive - so the first supertank arrives after the *sixth*
+ * missile, and 123 missiles later the slow tanks come back
+ * (docs/reference/original-game.md section 3, "Enemy selection ladder").
+ */
 function tankKind(world: World): EnemyKind {
-  return internalState(world).missilesLaunched >= SUPERTANK_AFTER_MISSILES ? 'supertank' : 'tank';
+  const counter = (SUPERTANK_COUNTER_START + internalState(world).missilesLaunched) & 0xff;
+  return counter >= SUPERTANK_AFTER_MISSILES && counter <= SUPERTANK_COUNTER_MAX
+    ? 'supertank'
+    : 'tank';
 }
 
 /** What arrives next. */

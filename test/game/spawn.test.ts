@@ -9,6 +9,7 @@ import {
   MISSILE_START_HEIGHT,
   MISSILE_TIMEOUT_TIMOUT,
   SUPERTANK_AFTER_MISSILES,
+  SUPERTANK_COUNTER_MAX,
   TANGLE_UNIT_RADIANS,
   TICKS_PER_TIMOUT,
 } from '../../src/data/constants';
@@ -138,12 +139,17 @@ describe('updateSpawner', () => {
     expect(offView).toBeLessThanOrEqual((ENEMY_SPAWN_ANGLE_MASK + 1) * TANGLE_UNIT_RADIANS);
   });
 
-  it('swaps the supertank in once five missiles have gone out', () => {
+  it('swaps the supertank in after the sixth missile, and back out 123 later', () => {
+    // GetTankType reads a counter that starts at $FF, so five launches still read 4.
     const world = makeWorld();
-    internalState(world).missilesLaunched = SUPERTANK_AFTER_MISSILES - 1;
-    expect(spawnOne(world, 1).kind).toBe('tank');
     internalState(world).missilesLaunched = SUPERTANK_AFTER_MISSILES;
+    expect(spawnOne(world, 1).kind).toBe('tank');
+    internalState(world).missilesLaunched = SUPERTANK_AFTER_MISSILES + 1;
     expect(spawnOne(world, 1).kind).toBe('supertank');
+    internalState(world).missilesLaunched = SUPERTANK_COUNTER_MAX + 1;
+    expect(spawnOne(world, 1).kind).toBe('supertank');
+    internalState(world).missilesLaunched = SUPERTANK_COUNTER_MAX + 2;
+    expect(spawnOne(world, 1).kind).toBe('tank');
   });
 
   it('honours the forced tank after a missile has killed the player', () => {

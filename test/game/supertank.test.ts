@@ -128,6 +128,23 @@ describe('updateSupertank', () => {
     expect(enemy.timer).toBe(SUPERTANK_DODGE_TICKS);
   });
 
+  it('does not abandon a back-out to dodge', () => {
+    // The retreat has its own goal and timer; cancelling it would leave the
+    // supertank grinding against whatever it drove into.
+    const { world, enemy, brain } = duel();
+    enemy.state = 'retreat';
+    enemy.timer = 20;
+    brain.goal = 0;
+    playerFires(world);
+
+    updateSupertank(world, enemy, createRng(1));
+
+    expect(enemy.state).toBe('retreat');
+    expect(enemy.timer).toBe(19);
+    expect(brain.goal).toBe(0);
+    expect(brain.dodgeTicksLeft).toBe(0);
+  });
+
   it('gets out of the way of a shell coming straight at it', () => {
     const { world, enemy } = duel(4000);
     playerFires(world);

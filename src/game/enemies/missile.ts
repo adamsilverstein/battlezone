@@ -38,6 +38,7 @@
 import {
   DEFAULT_OPTIONS,
   ENEMY_IN_RANGE_UNITS,
+  ENEMY_MEAN_SCORE,
   MISSILE_APPROACH_CONE_HEADING,
   MISSILE_CLIMB_PER_TICK,
   MISSILE_GOAL_FINE_STEPS,
@@ -57,9 +58,10 @@ import {
 import { wrapAngle } from '../../engine/math';
 import { bearingTo, missileHitsObstacle, octagonalDistance, wrapCoordinate } from '../collision';
 import { spawnExplosion } from '../explosions';
-import { bcdToDecimal } from '../score';
+import { bcdAdd, decimalToBcd } from '../score';
 import type { Enemy, GameEvent, Rng, World } from '../types';
-import { ageEnemy, enemyBrain, internalState, type EnemyBrain } from '../worldState';
+import { killPlayer } from '../player';
+import { ageEnemy, enemyBrain, type EnemyBrain } from '../worldState';
 
 /** The 90-degree cone behind the player the missile refuses to fly out of. */
 const APPROACH_CONE_RADIANS = MISSILE_APPROACH_CONE_HEADING * TANGLE_UNIT_RADIANS;
@@ -71,19 +73,26 @@ const GOAL_FINE_RADIANS = MISSILE_GOAL_FINE_STEPS * TANGLE_UNIT_RADIANS;
 /**
  * How near the missile has to be before it gives up swerving, in world units.
  *
- * `MISLVL + $25` and the score are all BCD in units of 1000, so the bias is
- * twenty-five thousand points, not thirty-seven: on the default 10000 missile
- * threshold a missile stops swerving at `TDIST` 35 and the floor at
- * `MISSILE_SWOOP_TDIST_MIN` arrives as the score approaches 35000.
+ * Reproduced in the ROM's own mixed arithmetic (BZONE.MAC.txt:6409-6451): `MISLVL`
+ * and `$25` are added in decimal mode, so `$10 + $25` is `$35`, and then the
+ * score's thousands byte is subtracted in *binary* and the raw result compared
+ * against `TDIST`.  `$35` is therefore read as 53, not 35 - the ROM never converts
+ * it - so a fresh game's missile drives straight in from 53 * 256 = 13568 units and
+ * every 1000 points takes a little off that.  Past 100000, or once the subtraction
+ * goes negative, it floors at `MISSILE_SWOOP_TDIST_MIN`.
+ *
+ * (docs/reference/original-game.md reads this as "the first missile of the game
+ * never swerves at all"; on these numbers it swerves for the first third of its
+ * run and then drives straight in.  The arithmetic is what the source does.)
  */
 export function straightInDistance(world: World): number {
-  const scoreUnits = Math.floor(world.score / SCORE_UNIT);
-  const missileLevel = DEFAULT_OPTIONS.missileThreshold / SCORE_UNIT;
-  const tdist = Math.max(
-    MISSILE_SWOOP_TDIST_MIN,
-    missileLevel + bcdToDecimal(MISSILE_SWOOP_BCD_BIAS) - scoreUnits,
-  );
-  return tdist * TDIST_UNIT;
+  if (world.score >= ENEMY_MEAN_SCORE) return MISSILE_SWOOP_TDIST_MIN * TDIST_UNIT;
+
+  const level = decimalToBcd(DEFAULT_OPTIONS.missileThreshold / SCORE_UNIT);
+  const scoreThousands = decimalToBcd(Math.floor(world.score / SCORE_UNIT));
+  const raw = bcdAdd(level, MISSILE_SWOOP_BCD_BIAS) - scoreThousands;
+
+  return Math.max(MISSILE_SWOOP_TDIST_MIN, raw) * TDIST_UNIT;
 }
 
 /** Step 2: keep the approach out of the cone behind the player. */
@@ -117,14 +126,10 @@ function flightHeading(world: World, enemy: Enemy, brain: EnemyBrain): number {
 
 /** Step 5: the missile and the player destroy each other. */
 function ram(world: World, enemy: Enemy, rng: Rng): GameEvent[] {
-  const state = internalState(world);
-  world.player.alive = false;
   enemy.alive = false;
-  state.playerDeaths += 1;
-  // "So we don't missile-spam the poor player" (BZONE.MAC.txt:5249-5255).
-  state.nextUnitOverride = 'tank';
   spawnExplosion(world, enemy, rng);
-  return [{ type: 'playerDestroyed', by: 'missile' }];
+  // No `enemyDestroyed`: ramming the player scores them nothing.
+  return killPlayer(world, 'missile');
 }
 
 /** One tick of a missile. */
@@ -154,17 +159,24 @@ export function updateMissile(world: World, enemy: Enemy, rng: Rng): GameEvent[]
     z: wrapCoordinate(before.z + distance * Math.cos(enemy.heading)),
   };
 
-  // Only a low missile can run into anything; once it has climbed to TOP it is
-  // over the obstacle and sinks back down on the far side.
-  const blocked =
-    enemy.y < MISSILE_LEVITATE_TOP ? missileHitsObstacle(enemy.pos, world.obstacles) : null;
-  if (blocked) {
-    enemy.pos = before;
-    brain.blocked = true;
-    enemy.state = 'hop';
+  const touching = missileHitsObstacle(enemy.pos, world.obstacles);
+  if (enemy.y < MISSILE_LEVITATE_TOP) {
+    // Low enough to run into it: back the move out and start climbing next tick.
+    if (touching) {
+      enemy.pos = before;
+      brain.blocked = true;
+      enemy.state = 'hop';
+    } else {
+      brain.blocked = false;
+      enemy.y = Math.max(0, enemy.y - MISSILE_CLIMB_PER_TICK);
+    }
   } else {
+    // At `TOP` it is over the obstacle, and it holds that height until it is clear
+    // of it - otherwise it would sink straight back into the far side of a wide
+    // pyramid and cross it in a series of stutters instead of one hop.
     brain.blocked = false;
-    enemy.y = Math.max(0, enemy.y - MISSILE_CLIMB_PER_TICK);
+    if (touching) enemy.state = 'hop';
+    else enemy.y = Math.max(0, enemy.y - MISSILE_CLIMB_PER_TICK);
   }
 
   if (world.player.alive && octagonalDistance(enemy.pos, world.player.pos) < TANK_MISSILE_RADIUS) {

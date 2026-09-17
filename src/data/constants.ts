@@ -368,10 +368,15 @@ export const ENEMY_RESPAWN_TIMOUT = 1;
 export const MISSILE_TIMEOUT_TIMOUT = 4;
 
 /**
- * The supertank replaces the ordinary tank once `NOR2D3` (the count of missiles
- * that have appeared, starting at 0) reaches 5 (TR7CHK, BZONE.MAC.txt:7315-7323).
+ * The supertank replaces the ordinary tank while `NOR2D3` reads 5 or more
+ * (TR7CHK, BZONE.MAC.txt:7315-7323).  The counter starts at `$FF` and is bumped on
+ * every missile launch, so it reads 5 after the sixth launch, and once it passes 127
+ * - 123 missiles later - the slow tanks come back
+ * (docs/reference/original-game.md section 3).
  */
 export const SUPERTANK_AFTER_MISSILES = 5;
+export const SUPERTANK_COUNTER_START = 0xff;
+export const SUPERTANK_COUNTER_MAX = 127;
 
 /**
  * How long the supertank breaks off its approach after the player fires.

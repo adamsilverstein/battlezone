@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEBRIS_PIECES,
-  DEFAULT_OPTIONS,
   MISSILE_CLIMB_PER_TICK,
   MISSILE_LEVITATE_TOP,
   MISSILE_SPEED_MULTIPLIER,
@@ -23,11 +22,11 @@ import { enemyBrain, internalState } from '../../src/game/worldState';
 import { makeWorld } from './fixtures';
 
 /**
- * How far out the missile gives up weaving on a fresh game, in world units.  On the
- * default 10000 missile threshold that is `TDIST` 10 + 25 = 35, read straight off
- * the ROM's BCD tables rather than recomputed from them here.
+ * How far out the missile gives up weaving on a fresh game, in world units.  The ROM
+ * adds `MISLVL` and `$25` in decimal mode and then reads the result as a binary
+ * byte, so the default 10000 threshold gives `$10 + $25` = `$35` = 53 `TDIST` units.
  */
-const STRAIGHT_IN_UNITS = 35 * TDIST_UNIT;
+const STRAIGHT_IN_UNITS = 53 * TDIST_UNIT;
 
 /** A missile inbound down the +Z axis at the player at the origin. */
 function inbound(options: { z?: number; y?: number; heading?: number } = {}) {
@@ -58,22 +57,26 @@ function run(world: World, enemy: Enemy, ticks: number, seed = 1): GameEvent[] {
 }
 
 describe('straightInDistance', () => {
-  it('reads the swoop bias as the BCD 25000 points it is, not as 37', () => {
+  it('adds MISLVL and the bias in BCD and reads the result as a binary byte', () => {
     const world = makeWorld();
+    // $10 + $25 = $35, read as 53 rather than converted back to 35.
     expect(straightInDistance(world)).toBe(STRAIGHT_IN_UNITS);
-    expect(straightInDistance(world)).toBe(8960);
+    expect(straightInDistance(world)).toBe(53 * TDIST_UNIT);
   });
 
-  it('shrinks to the floor by the time the score reaches the threshold plus 25000', () => {
+  it('subtracts the score thousands byte in binary, so 5000 points takes off five', () => {
     const world = makeWorld();
-    world.score = DEFAULT_OPTIONS.missileThreshold + 25 * SCORE_UNIT;
-    expect(straightInDistance(world)).toBe(MISSILE_SWOOP_TDIST_MIN * TDIST_UNIT);
+    world.score = 5 * SCORE_UNIT;
+    expect(straightInDistance(world)).toBe(0x30 * TDIST_UNIT);
+    expect(straightInDistance(world)).toBe(48 * TDIST_UNIT);
+  });
 
-    // And it is still above the floor just before that: a mid-game missile drives
-    // straight in from further out than a late-game one.
-    world.score = DEFAULT_OPTIONS.missileThreshold;
-    expect(straightInDistance(world)).toBeGreaterThan(MISSILE_SWOOP_TDIST_MIN * TDIST_UNIT);
-    expect(straightInDistance(world)).toBeLessThan(STRAIGHT_IN_UNITS);
+  it('floors at the swoop minimum once the subtraction runs out, and past 100000', () => {
+    const world = makeWorld();
+    world.score = 60 * SCORE_UNIT;
+    expect(straightInDistance(world)).toBe(MISSILE_SWOOP_TDIST_MIN * TDIST_UNIT);
+    world.score = 100 * SCORE_UNIT;
+    expect(straightInDistance(world)).toBe(MISSILE_SWOOP_TDIST_MIN * TDIST_UNIT);
   });
 });
 
@@ -177,6 +180,35 @@ describe('updateMissile', () => {
     expect(enemy.y).toBeLessThanOrEqual(MISSILE_LEVITATE_TOP + MISSILE_CLIMB_PER_TICK);
     // And it does get past: the box does not hide the player from it.
     expect(enemy.pos.z).toBeLessThan(2000);
+  });
+
+  it('crosses a wide obstacle in one hop, not in a series of stutters', () => {
+    // A pyramidWide is 1024 units of PROXTB radius, and the missile's 3/4 distance
+    // scale makes it collide 1365 units out either side - far enough that a missile
+    // sinking back down mid-crossing would hop its way across in threes.
+    const wall: Obstacle = {
+      kind: 'pyramidWide',
+      pos: { x: 0, z: 9000 },
+      heading: 0,
+      radius: OBSTACLE_TANK_RADIUS.pyramidWide,
+    };
+    const finish = 6000;
+
+    const crossing = (obstacles: Obstacle[]): number => {
+      const { world, enemy } = inbound({ z: 12000 });
+      world.obstacles = obstacles;
+      for (let tick = 1; tick <= 200; tick += 1) {
+        world.tick = tick;
+        updateMissile(world, enemy, createRng(1));
+        if (enemy.pos.z <= finish) return tick;
+      }
+      throw new Error('the missile never got past');
+    };
+
+    const blocked = crossing([wall]);
+    const clear = crossing([]);
+    // The climb costs it a tick or two; a stuttering missile took three times as long.
+    expect(blocked).toBeLessThanOrEqual(clear + 4);
   });
 
   it('kills the player and itself when it rams them', () => {

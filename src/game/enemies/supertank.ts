@@ -57,7 +57,9 @@ export function updateSupertank(world: World, enemy: Enemy, rng: Rng): GameEvent
     // Already breaking off.  A player firing again mid-dodge does not get to hold
     // the supertank sideways indefinitely; it finishes this one first.
     brain.dodgeTicksLeft -= 1;
-  } else if (shell !== null && shell !== brain.dodgedShell) {
+  } else if (shell !== null && shell !== brain.dodgedShell && enemy.state !== 'retreat') {
+    // Never mid-retreat: the back-out has its own goal and timer, and cancelling it
+    // would leave the supertank grinding against whatever it hit.
     brain.dodgedShell = shell;
     brain.dodgeTicksLeft = SUPERTANK_DODGE_TICKS;
     brain.goal = wrapAngle(bearingTo(enemy.pos, world.player.pos) + TAU / 4);

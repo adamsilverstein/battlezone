@@ -40,16 +40,24 @@ export function pointsFor(kind: EnemyKind): number {
 }
 
 /**
- * Reads a packed BCD byte as the decimal number a player would see: `0x25` is
- * twenty-five, not thirty-seven.
- *
- * The ROM's score arithmetic runs in decimal mode (`SED`/`ADC`, BZONE.MAC.txt:
- * 4607-4637), so every score-shaped table byte - `BONTBL`, `MISLVL`, the missile's
- * `$25` swoop bias - is BCD, and any of them compared against a score in this
- * recreation has to come through here first.
+ * Packed BCD, which is how the ROM holds every score-shaped byte: `HITS`, `BONTBL`,
+ * `MISLVL` and the missile's `$25` swoop bias are all decimal digits in nibbles,
+ * because the score arithmetic runs in decimal mode (`SED`/`ADC`,
+ * BZONE.MAC.txt:4607-4637).  Anything in this recreation that has to reproduce one
+ * of the ROM's mixed BCD/binary comparisons goes through these.
  */
 export function bcdToDecimal(byte: number): number {
   return (byte >> 4) * 10 + (byte & 0x0f);
+}
+
+/** The same the other way: 25 becomes `0x25`.  Values above 99 are not representable. */
+export function decimalToBcd(value: number): number {
+  return Math.floor(value / 10) * 0x10 + (value % 10);
+}
+
+/** A `SED`/`ADC` addition of two packed BCD bytes. */
+export function bcdAdd(a: number, b: number): number {
+  return decimalToBcd(bcdToDecimal(a) + bcdToDecimal(b));
 }
 
 /** The award after `threshold`: the super bonus, then nothing ever again. */
