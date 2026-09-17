@@ -655,6 +655,96 @@ export const MAX_OBJECTS_IN_VIEW = 28;
  */
 export const DEPTH_CUE_MIN_INTENSITY = 0x30;
 
+/**
+ * Depth cue shift: `DQUE` is the high nibble of the 16-bit view depth, so the
+ * cue is `depth >> 12` in the vector generator's 0..15 intensity units.
+ */
+export const DEPTH_CUE_SHIFT = 12;
+
+/** Maximum vector generator intensity (a nibble). */
+export const INTENSITY_MAX = 0xf;
+
+/**
+ * Height of the viewpoint above the ground plane.  Object vertices are stored
+ * relative to the viewpoint with the ground at -320 (see the UNITS note at the
+ * top of this file), so putting the world's y = 0 on the ground puts the eye at
+ * +320.
+ */
+export const EYE_HEIGHT_UNITS = 320;
+
+/** The ground plane in the ROM's viewpoint-relative vertical units. */
+export const GROUND_PLANE_UNITS = -320;
+
+// --------------------------------------------------------------------------- //
+// Display
+// --------------------------------------------------------------------------- //
+
+/**
+ * Logical display half-extents.  The monitor is 4:3 and the vector coordinates
+ * the game uses reach about +/-512 horizontally (the 1016-unit clipping window
+ * plus overscan), so the logical space is 1024 x 768.
+ *
+ * ESTIMATE: the ROM only fixes the clipping windows above; the exact visible
+ * extent depends on the monitor's deflection gain, which the reference notes
+ * describe as reaching +/-1024 with overscan
+ * (docs/reference/original-game.md section 1).
+ */
+export const SCREEN_HALF_WIDTH = 512;
+export const SCREEN_HALF_HEIGHT = 384;
+
+/**
+ * What the tube actually shows.  The ROM's clipping windows are squarer than the
+ * 4:3 monitor - `VIEW_WINDOW` reaches down to -508 - because the hardware window
+ * circuit worked in deflection units, not visible ones.  Anything drawn outside
+ * this rectangle was off the screen.
+ */
+export const DISPLAY_WINDOW = {
+  left: -SCREEN_HALF_WIDTH,
+  right: SCREEN_HALF_WIDTH,
+  bottom: -SCREEN_HALF_HEIGHT,
+  top: SCREEN_HALF_HEIGHT,
+} as const;
+
+/** The horizon line's screen y (docs/reference/original-game.md section 1). */
+export const HORIZON_Y = 0;
+
+/**
+ * Draw the arcade cabinet's colour overlay by default: a red gel band over the
+ * HUD strip above `VIEW_WINDOW.top` and green below it (design spec 5.4).
+ */
+export const OVERLAY_ENABLED = true;
+
+// --------------------------------------------------------------------------- //
+// Volcano
+// --------------------------------------------------------------------------- //
+
+/**
+ * Where the crater sits on the 4096-unit mountain strip: the right-hand end of
+ * segment 5, range coordinate 5 * 512 + 504
+ * (docs/reference/atari-source-notes.md, "Mountains, moon and volcano").
+ */
+export const VOLCANO_RANGE_X = 3064;
+
+/** Screen y of the emitter, `$5E` above the horizon (BZONE.MAC.txt:2535-2577). */
+export const VOLCANO_CRATER_Y = 94;
+
+/** Rock slots `VOLCNO` manages, and the 1-in-8 chance an idle slot launches (BZONE.MAC.txt:2721-2839). */
+export const VOLCANO_ROCK_SLOTS = 5;
+export const VOLCANO_LAUNCH_CHANCE_DENOMINATOR = 8;
+
+/** Rock lifetime in ticks; the top three bits of the remaining life are its intensity. */
+export const VOLCANO_ROCK_LIFETIME_TICKS = 0x1f;
+
+/** Initial rock speeds: horizontal 1..4 either way, vertical 5..12 up. */
+export const VOLCANO_ROCK_VX_MIN = 1;
+export const VOLCANO_ROCK_VX_MAX = 4;
+export const VOLCANO_ROCK_VY_MIN = 5;
+export const VOLCANO_ROCK_VY_MAX = 12;
+
+/** Vertical speed lost per tick, and how far below the crater a rock may fall. */
+export const VOLCANO_ROCK_GRAVITY = -1;
+export const VOLCANO_ROCK_FALL_LIMIT = 0xa2;
+
 // --------------------------------------------------------------------------- //
 // Death sequence
 // --------------------------------------------------------------------------- //
