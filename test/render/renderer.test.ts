@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CRACK_GROUPS, DEFAULT_OPTIONS, EYE_HEIGHT_UNITS } from '../../src/data/constants';
+import { HEADING_UNITS_PER_TURN, RADAR_SWEEP_PER_TICK } from '../../src/data/constants';
 import { MAX_CATCHUP_TICKS } from '../../src/engine/loop';
 import { createAttractWorld } from '../../src/game/world';
 import type { Enemy, GameState, Shell, World } from '../../src/game/types';
@@ -303,6 +304,30 @@ describe('createRenderer', () => {
     expect(d.lines).toEqual(
       expected({ pos: { x: 400, z: 0 }, heading: 0, eyeHeight: EYE_HEIGHT_UNITS }, 7, next),
     );
+  });
+
+  it('lights a blip the sweep crossed during a catch-up', () => {
+    // The loop ran three ticks before this frame, and the sweep passed the enemy
+    // on the first of them.  Only the last world is in hand, but the sweep moves
+    // a fixed step a tick, so winding it back finds the crossing.
+    const step = (RADAR_SWEEP_PER_TICK * Math.PI * 2) / HEADING_UNITS_PER_TURN;
+    const at = (tick: number, radarAngle: number): GameState => {
+      const state = stateAt(tick, 0, 0, 0);
+      state.phase = 'playing';
+      state.world.enemies = [enemyAt(0, 8000, 0)];
+      state.world.radarAngle = radarAngle;
+      return state;
+    };
+    const d = createRecordingDisplay();
+    const renderer = createRenderer(d);
+    // Dead ahead is bearing zero: one step short of it, then two steps past.
+    renderer.render(at(0, -step), 0);
+    const dark = d.lines.filter((l) => l.x0 === l.x1 && l.y0 === l.y1).length;
+    renderer.render(at(3, 2 * step), 0);
+    const lit = d.lines.filter((l) => l.x0 === l.x1 && l.y0 === l.y1);
+
+    expect(dark).toBe(0);
+    expect(lit).toHaveLength(1);
   });
 
   it('fades the radar blip once per simulated tick, not once per frame', () => {

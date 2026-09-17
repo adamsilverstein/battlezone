@@ -148,11 +148,12 @@ export function createRenderer(d: VectorDisplay): {
       // the loop caught several ticks up has to fade them all, or the dot lingers
       // brighter than the ROM's would; the loop never runs more than
       // `MAX_CATCHUP_TICKS` at once, and a world that went backwards has just been
-      // reset above.
+      // reset above.  Only this world is in hand for those skipped ticks, but the
+      // sweep is winding-back arithmetic, so a crossing in the middle of a catch-up
+      // still lights the blip - only the enemy's position is a tick or two stale.
       const elapsed = Number.isNaN(lastTick) ? 1 : tick - lastTick;
-      for (let i = 0; i < Math.min(Math.max(elapsed, 0), MAX_CATCHUP_TICKS); i += 1) {
-        blips.advance(world);
-      }
+      const ticks = Math.min(Math.max(elapsed, 0), MAX_CATCHUP_TICKS);
+      for (let back = ticks - 1; back >= 0; back -= 1) blips.advance(world, back);
 
       if (tick !== lastTick || snapRequested) {
         const snapshot = snapshotOf(world);

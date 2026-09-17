@@ -51,8 +51,12 @@ export function createKeyboard(target: EventTarget): { read(): RawInput; dispose
   const onKeyDown = (event: Event): void => {
     const { code } = event as KeyboardEvent;
     if (!isMapped(code)) return;
+    // A key held down repeats, and every repeat is another keydown.  Only the
+    // first one is a press: latching the repeats too would turn a held fire
+    // button into an edge every tick, which would run the initials editor
+    // through all three letters on one press.
+    if (!heldCodes.has(code)) tappedCodes.add(code);
     heldCodes.add(code);
-    tappedCodes.add(code);
     // Space and the arrows scroll the page and Enter can activate whatever has
     // focus; the cabinet's controls do none of that, so the key stops here.
     event.preventDefault();

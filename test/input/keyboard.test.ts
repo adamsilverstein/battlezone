@@ -69,6 +69,20 @@ describe('createKeyboard', () => {
     expect(keyboard.read()).toMatchObject({ fire: true });
   });
 
+  it('counts a held key as one press, however often it repeats', () => {
+    // Holding a key makes the browser repeat its keydown; only the first is a
+    // press, or a held fire button would report an edge every tick.
+    const target = new EventTarget();
+    const keyboard = keyboardOn(target);
+    down(target, 'Space');
+    expect(keyboard.read()).toMatchObject({ fire: true, firePressed: true });
+    down(target, 'Space');
+    down(target, 'Space');
+    expect(keyboard.read()).toMatchObject({ fire: true, firePressed: false });
+    up(target, 'Space');
+    expect(keyboard.read()).toMatchObject({ fire: false, firePressed: false });
+  });
+
   it('maps W and S to the left tread', () => {
     const target = new EventTarget();
     const keyboard = keyboardOn(target);

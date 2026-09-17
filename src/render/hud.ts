@@ -29,6 +29,7 @@ import {
   RADAR_BLIP_WINDOW,
   RADAR_CENTRE,
   RADAR_RADIUS,
+  RADAR_SWEEP_PER_TICK,
   RETICLE_BLINK_TICKS,
   SCORE_TRAILING_ZEROS,
   TANGLE_UNIT_RADIANS,
@@ -105,8 +106,15 @@ function unitsPastBearing(sweep: number, bearing: number): number {
  * once per simulated tick.
  */
 export interface RadarBlips {
-  /** One game tick: fade every blip, and relight the one the sweep just passed. */
-  advance(world: World): void;
+  /**
+   * One game tick: fade every blip, and relight the one the sweep just passed.
+   *
+   * `ticksBack` is for a caller catching up on ticks it never saw a world for:
+   * the sweep advances a fixed `RADAR_SWEEP_PER_TICK` every tick, so where it
+   * was `ticksBack` ticks before this world is exact arithmetic, and winding it
+   * back that far is what keeps a crossing from being missed entirely.
+   */
+  advance(world: World, ticksBack?: number): void;
   /** A unit's level on the ROM's 0..255 scale; 0 once it has faded out. */
   levelFor(id: number): number;
   /** Forget everything, for a battlefield that has been replaced. */
@@ -116,7 +124,7 @@ export interface RadarBlips {
 export function createRadarBlips(): RadarBlips {
   const levels = new Map<number, number>();
   return {
-    advance(world: World): void {
+    advance(world: World, ticksBack = 0): void {
       for (const [id, level] of levels) {
         const faded = level - RADAR_BLIP_DECAY;
         if (faded > 0) levels.set(id, faded);
@@ -124,8 +132,9 @@ export function createRadarBlips(): RadarBlips {
       }
       const unit = nearestEnemyUnit(world);
       if (!unit) return;
+      const sweep = world.radarAngle - ticksBack * RADAR_SWEEP_PER_TICK * TANGLE_UNIT_RADIANS;
       const bearing = wrapAngle(bearingTo(world.player.pos, unit.pos) - world.player.heading);
-      if (unitsPastBearing(world.radarAngle, bearing) <= RADAR_BLIP_WINDOW) {
+      if (unitsPastBearing(sweep, bearing) <= RADAR_BLIP_WINDOW) {
         levels.set(unit.id, RADAR_BLIP_BRIGHTNESS);
       }
     },
