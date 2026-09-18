@@ -606,9 +606,15 @@ export const RADAR_BLIP_DECAY = 8;
  * enemy's.
  *
  * Both sides' shells show, on the ROM's 0..255 intensity scale and each drawn
- * once rather than the blip's twice, so a shell reads as a lighter mark than a
- * tank.  Incoming fire is the brighter of the two; the player's own shot is
- * faint, there to be followed rather than watched for.
+ * once rather than the blip's twice.  Incoming fire is the brighter of the two;
+ * the player's own shot is faint, there to be followed rather than watched for.
+ *
+ * These are steady levels, and the enemy blip's is not: `RADAR_BLIP_BRIGHTNESS`
+ * decays `RADAR_BLIP_DECAY` a tick over a sweep revolution of
+ * `RADAR_SWEEP_TICKS_PER_REV`.  The blip is the brighter mark when the sweep has
+ * just lit it and dimmer than an incoming shell for roughly the last 40% of the
+ * revolution, so the two read as different kinds of thing - a return that
+ * pulses, and a track that does not - rather than as a fixed ranking.
  */
 export const RADAR_ENEMY_SHELL_INTENSITY = 0xc0;
 export const RADAR_PLAYER_SHELL_INTENSITY = 0x60;
@@ -854,6 +860,14 @@ export const NEAR_CLIP_UNITS = 512;
  * anything the radar knows about can be looked at.  The depth cue still does its
  * work at that distance (an object at the rim is drawn at about half intensity,
  * well above `DEPTH_CUE_MIN_INTENSITY`), so far still reads as far.
+ *
+ * Two consequences worth knowing about.  `ENEMY_IN_RANGE_UNITS` is `WORLD_SIZE /
+ * 2`, the largest separation `wrapCoordinate` can return, so the far plane no
+ * longer rejects anything by distance and `objectInView` is in practice a test
+ * of whether a thing is in front of the eye.  And both spawn distances are now
+ * inside the view, so a unit arriving at `ENEMY_SPAWN_FAR_UNITS` appears out of
+ * empty ground rather than over the horizon - `ENEMY_SPAWN_NEAR_UNITS` was
+ * already inside the ROM's own plane and did this, but it is more visible now.
  */
 export const FAR_CLIP_UNITS = ENEMY_IN_RANGE_UNITS;
 

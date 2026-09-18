@@ -47,8 +47,18 @@ const TICKS_PER_SUB_STEP = 1 / SHELL_STEPS_PER_TICK;
 /**
  * A test run against one shell at one sub-step position: the events of whatever it
  * struck, or null if it struck nothing.  Returning events ends the shell's flight.
+ *
+ * `progress` is how far through the tick this sub-step is, from just above 0 to
+ * 1 on the last of them.  A target that moved this tick is somewhere along the
+ * ground it covered, not at the far end of it, and that is the only way to know
+ * where: see `InternalState.playerStepDelta`.
  */
-export type ShellTarget = (world: World, shell: Shell, rng: Rng) => GameEvent[] | null;
+export type ShellTarget = (
+  world: World,
+  shell: Shell,
+  rng: Rng,
+  progress: number,
+) => GameEvent[] | null;
 
 /**
  * The vehicle tests, run in registration order before the obstacle test on every
@@ -128,8 +138,9 @@ export function updateShells(world: World, rng: Rng): GameEvent[] {
       shell.ticksLeft -= TICKS_PER_SUB_STEP;
 
       // The vehicles first, as CheckProjColl does; whoever was hit reports it.
+      const progress = (step + 1) / SHELL_STEPS_PER_TICK;
       for (const target of shellTargets) {
-        const hit = target(world, shell, rng);
+        const hit = target(world, shell, rng, progress);
         if (hit) {
           events.push(...hit);
           ended = true;

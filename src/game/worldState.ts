@@ -23,6 +23,17 @@ import type { Enemy, EnemyKind, Shell, Vec2, World } from './types';
 interface InternalState {
   /** True while the player's move is being backed out every tick. */
   playerBlocked: boolean;
+  /**
+   * How far the player actually travelled this tick, before wrapping.
+   *
+   * `updateWorld` moves the player in one jump and then flies the shells, so a
+   * shell sees the player already at the far end of the ground they crossed.
+   * While that jump was shorter than a shell's hit radius the two could not
+   * miss each other; at `PLAYER_MOVE_STEP_UNITS` it is not, so the shell test
+   * walks this displacement back to put the player where they were at each of
+   * its own sub-steps.  Zero on a tick the player did not move, or was blocked.
+   */
+  playerStepDelta: Vec2;
   /** Next `Shell.id`; ids are per-world so two worlds stay comparable. */
   nextShellId: number;
   /** Next `Enemy.id`, for the same reason. */
@@ -80,6 +91,7 @@ export function internalState(world: World): InternalState {
   if (existing) return existing;
   const fresh: InternalState = {
     playerBlocked: false,
+    playerStepDelta: { x: 0, z: 0 },
     nextShellId: 1,
     nextEnemyId: 1,
     missilesLaunched: 0,

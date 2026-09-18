@@ -47,15 +47,16 @@ import {
   nearestEnemyUnit,
   octagonalDistance,
   shellHitsUnit,
+  wrapCoordinate,
 } from '../collision';
 import { spawnExplosion, updateDebris } from '../explosions';
 import { killPlayer } from '../player';
 import { addScore, pointsFor } from '../score';
 import { shellTargets } from '../shells';
 import { updateSpawner } from '../spawn';
-import type { Enemy, GameEvent, Rng, Shell, World } from '../types';
+import type { Enemy, GameEvent, Rng, Shell, Vec2, World } from '../types';
 import { RADAR_SWEEP_RADIANS, systems } from '../world';
-import { enemyBrain, shellFirer } from '../worldState';
+import { enemyBrain, internalState, shellFirer } from '../worldState';
 import { updateMissile } from './missile';
 import { findSaucer, updateSaucer } from './saucer';
 import { updateSupertank } from './supertank';
@@ -109,9 +110,43 @@ function playerShellHits(world: World, shell: Shell, rng: Rng): GameEvent[] | nu
   return [{ type: 'enemyDestroyed', kind: target.kind, points }, ...addScore(world, points)];
 }
 
+/**
+ * Where the player was `progress` of the way through this tick.
+ *
+ * `updateWorld` drives the player in one jump and flies the shells afterwards,
+ * so by the time a shell is tested the player is already standing at the far end
+ * of the ground they crossed.  At the ROM's step that could be ignored - the
+ * jump was shorter than the narrowest hit radius, so a shell coming up the path
+ * could not fail to be inside it somewhere.  `PLAYER_MOVE_STEP_UNITS` is wider
+ * than that radius, and a shell crossing obliquely began to arrive at an empty
+ * patch of ground with the player already clear of it.
+ *
+ * Walking the tick's displacement back puts the player where they were when this
+ * sub-step happened, which is the interleaving `MAIN` got for free by running
+ * `COLCHK` and `SHUPDT` together four times a tick.
+ */
+function playerDuringTick(world: World, progress: number): { pos: Vec2; heading: number } {
+  const { player } = world;
+  const delta = internalState(world).playerStepDelta;
+  if (delta.x === 0 && delta.z === 0) return player;
+  const back = 1 - progress;
+  return {
+    pos: {
+      x: wrapCoordinate(player.pos.x - delta.x * back),
+      z: wrapCoordinate(player.pos.z - delta.z * back),
+    },
+    heading: player.heading,
+  };
+}
+
 /** An enemy shell against the player, then the saucer it may hit by accident. */
-function enemyShellHits(world: World, shell: Shell, rng: Rng): GameEvent[] | null {
-  if (world.player.alive && shellHitsUnit(shell, world.player, false)) {
+function enemyShellHits(
+  world: World,
+  shell: Shell,
+  rng: Rng,
+  progress: number,
+): GameEvent[] | null {
+  if (world.player.alive && shellHitsUnit(shell, playerDuringTick(world, progress), false)) {
     // The unit that fired may already be scrap, so the kind travels with the shell.
     return killPlayer(world, shellFirer(shell) ?? 'tank');
   }
@@ -137,11 +172,16 @@ function enemyShellHits(world: World, shell: Shell, rng: Rng): GameEvent[] | nul
  * actually calls it, and taking the spent shell off the field is that function's
  * job.
  */
-export function resolveShellHits(world: World, shell: Shell, rng: Rng): GameEvent[] | null {
+export function resolveShellHits(
+  world: World,
+  shell: Shell,
+  rng: Rng,
+  progress: number,
+): GameEvent[] | null {
   const hit =
     shell.owner === 'player'
       ? playerShellHits(world, shell, rng)
-      : enemyShellHits(world, shell, rng);
+      : enemyShellHits(world, shell, rng, progress);
   if (!hit) return null;
 
   // A landed shell clears `TIMOUT` (BZONE.MAC.txt:4589-4607), so the spawner's

@@ -82,8 +82,9 @@ Deliberate deviations, each one commented where it lives:
   aimed shot is close to unavoidable: the shell crosses the ground ten times
   faster than the tank does.
 - Shells in the air show on the radar, incoming fire brighter than the player's
-  own. `DRADAR` knows only about the nearest enemy unit, and drew nothing for a
-  shell (`RADAR_ENEMY_SHELL_INTENSITY`).
+  own and both drawn at a steady level rather than the enemy blip's decaying
+  pulse. `DRADAR` knows only about the nearest enemy unit, and drew nothing for
+  a shell (`RADAR_ENEMY_SHELL_INTENSITY`).
 - The supertank breaks off its approach when the player fires. Nothing in the
   ROM reacts to the player's shell; the design spec asks for the dodge
   (`SUPERTANK_DODGE_TICKS`).

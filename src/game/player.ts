@@ -100,15 +100,20 @@ export function updatePlayer(world: World, input: InputState): GameEvent[] {
 
   if (moveSteps === 0) {
     state.playerBlocked = false;
+    state.playerStepDelta = { x: 0, z: 0 };
     return [];
   }
 
   const before = { ...player.pos };
   const distance = moveSteps * PLAYER_MOVE_STEP_UNITS;
-  player.pos = {
-    x: wrapCoordinate(before.x + distance * Math.sin(player.heading)),
-    z: wrapCoordinate(before.z + distance * Math.cos(player.heading)),
+  // Kept unwrapped: the shell test walks it back to find where the player was
+  // part way through the tick, and a wrapped delta would send them round the
+  // world instead of back down their own tracks.
+  const delta = {
+    x: distance * Math.sin(player.heading),
+    z: distance * Math.cos(player.heading),
   };
+  player.pos = { x: wrapCoordinate(before.x + delta.x), z: wrapCoordinate(before.z + delta.z) };
 
   // An enemy tank is as solid as a pyramid: `OBJOBJ` runs its tank-versus-tank test
   // for the player too, so driving into one stops the tank rather than passing
@@ -120,10 +125,12 @@ export function updatePlayer(world: World, input: InputState): GameEvent[] {
 
   if (!blocked) {
     state.playerBlocked = false;
+    state.playerStepDelta = delta;
     return [];
   }
 
   player.pos = before;
+  state.playerStepDelta = { x: 0, z: 0 };
   const wasBlocked = state.playerBlocked;
   state.playerBlocked = true;
   return wasBlocked ? [] : [{ type: 'motionBlocked' }];

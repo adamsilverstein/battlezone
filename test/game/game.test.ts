@@ -53,13 +53,13 @@ function runUntilPhaseChanges(game: Game, limit = 4096): { phase: GamePhase; tic
 /**
  * How far behind the player an executioner's shell starts.
  *
- * The player moves before the shells do, so a shell aimed at where the player
- * stands now arrives at where they no longer are - by as much as
- * `PLAYER_FULL_SPEED_STEPS * PLAYER_MOVE_STEP_UNITS`, either way, depending on
- * the sticks.  Two sub-steps back is enough room that one of the four sub-steps
- * of the coming tick lands inside the hit radius whichever way they drove: the
- * shell is tested every `SHELL_STEP_UNITS`, so it can never pass a point by more
- * than half of that without being tested within it.
+ * The player moves before the shells do, and the shell test walks that
+ * displacement back so the player is where they were at each sub-step rather
+ * than at the far end of it (`playerDuringTick`).  What is left to allow for is
+ * only the shell's own sampling: it is tested every `SHELL_STEP_UNITS`, so it
+ * can never pass a point by more than half of that without being tested within
+ * it.  Two sub-steps back puts the player's ground squarely inside the coming
+ * tick's four samples, whichever way the demo drove.
  */
 const SHELL_RUN_UP_UNITS = SHELL_STEP_UNITS * 2;
 
