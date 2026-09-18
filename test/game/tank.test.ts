@@ -173,9 +173,15 @@ describe('updateTank', () => {
     enemy.heading = bearingTo(enemy.pos, world.player.pos);
     brain.goal = enemy.heading;
 
-    // Three seconds of ticks, one short of the grace, and still nothing.
-    const early = run(world, enemy, Math.floor(3 * TICK_HZ));
+    // The deviation is quoted in seconds, so pin the seconds and the tick the
+    // cannon comes live on: `ageEnemy` runs first, so tick `grace` is the earliest
+    // that may fire and everything before it must be silent.
+    expect(ENEMY_FIRE_GRACE_TICKS / TICK_HZ).toBeGreaterThanOrEqual(3);
+
+    const early = run(world, enemy, ENEMY_FIRE_GRACE_TICKS - 1);
     expect(early.some((event) => event.type === 'enemyFired')).toBe(false);
+
+    expect(run(world, enemy, 1)).toContainEqual<GameEvent>({ type: 'enemyFired' });
   });
 
   it('keeps the beginner handicap on well past the first few kills', () => {
