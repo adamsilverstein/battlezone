@@ -300,8 +300,11 @@ describe('constants', () => {
       'ENEMY_SPAWN_NEAR_UNITS',
       'ENEMY_SPAWN_FAR_UNITS',
       'ENEMY_SPAWN_HEADING_SCATTER',
+      'ROM_ENEMY_SPAWN_NEAR_UNITS',
       'ENEMY_FIRE_GRACE_TICKS',
+      'ROM_ENEMY_FIRE_GRACE_TICKS',
       'ROOKIE_FIRE_MAX_SCORE',
+      'ROM_ROOKIE_FIRE_MAX_SCORE',
       'WORLD_SIZE',
       'OBSTACLE_COUNT',
       'HSCNUM',
@@ -321,6 +324,23 @@ describe('constants', () => {
       expect(typeof constants[key], key).toBe('number');
       expect(Number.isFinite(constants[key] as number), key).toBe(true);
     }
+  });
+
+  it('keeps the eased difficulty numbers tied to what they are derived from', () => {
+    // ENEMY_SPAWN_NEAR_UNITS is spelled out rather than divided, because
+    // ENEMY_IN_RANGE_UNITS is declared below it and would be in the temporal dead
+    // zone.  This is what stops the two drifting apart silently.
+    expect(constants.ENEMY_SPAWN_NEAR_UNITS).toBe(constants.ENEMY_IN_RANGE_UNITS / 2);
+    // The firing grace is quoted in seconds in the README; keep it honest.
+    expect(constants.ENEMY_FIRE_GRACE_TICKS / constants.TICK_HZ).toBeGreaterThanOrEqual(3);
+    // Each eased number has to actually ease something.
+    expect(constants.ENEMY_SPAWN_NEAR_UNITS).toBeGreaterThan(constants.ROM_ENEMY_SPAWN_NEAR_UNITS);
+    expect(constants.ENEMY_FIRE_GRACE_TICKS).toBeGreaterThan(constants.ROM_ENEMY_FIRE_GRACE_TICKS);
+    expect(constants.ROOKIE_FIRE_MAX_SCORE).toBeGreaterThan(constants.ROM_ROOKIE_FIRE_MAX_SCORE);
+    // The scatter has to clear the window FIREIT will fire from, or it buys nothing.
+    expect(constants.ENEMY_SPAWN_HEADING_SCATTER).toBeGreaterThan(
+      constants.ENEMY_FIRE_ANGLE_TOLERANCE,
+    );
   });
 
   it('records the timing the original runs at', () => {

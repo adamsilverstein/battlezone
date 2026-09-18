@@ -234,7 +234,9 @@ function tryFire(world: World, enemy: Enemy, brain: EnemyBrain): GameEvent[] {
   if (Math.abs(wrapAngle(bearing - enemy.heading)) >= FIRE_TOLERANCE_RADIANS) return [];
 
   // The beginner handicap: until the enemy has been alive 255 ticks or the player
-  // has 2000 points, it only shoots from within the player's view and up close.
+  // has `ROOKIE_FIRE_MAX_SCORE` points, it only shoots from within the player's
+  // view and up close.  The ROM lifts it at 2000; this recreation holds it to
+  // 10000, which is the deviation documented on the constant.
   if (brain.ftimer < ENEMY_FTIMER_MAX && world.score < ROOKIE_FIRE_MAX_SCORE) {
     const offView = wrapAngle(bearingTo(world.player.pos, enemy.pos) - world.player.heading);
     if (Math.abs(offView) >= ROOKIE_VIEW_RADIANS) return [];

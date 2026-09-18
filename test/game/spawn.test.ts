@@ -236,10 +236,18 @@ describe('updateSpawner', () => {
 
   it('keeps every arrival at least half the radar range away', () => {
     const world = makeWorld();
-    for (let seed = 1; seed <= 40; seed += 1) {
+    // True distance, not `octagonalDistance`: the ROM's metric reads a shallow
+    // bearing up to 6 per cent long but a steep one nearly 3 per cent short, and
+    // `place` puts the arrival at a true 0x4000.  Measuring this one octagonally
+    // fails on a steep enough spawn - seed 43 is the first - for an implementation
+    // that is doing exactly the right thing.
+    for (let seed = 1; seed <= 200; seed += 1) {
       const spawned = spawnOne(world, seed);
-      const distance = octagonalDistance(world.player.pos, spawned.pos);
-      expect(distance).toBeGreaterThanOrEqual(ENEMY_IN_RANGE_UNITS / 2);
+      const distance = Math.hypot(
+        spawned.pos.x - world.player.pos.x,
+        spawned.pos.z - world.player.pos.z,
+      );
+      expect(distance, `seed ${seed}`).toBeGreaterThanOrEqual(ENEMY_IN_RANGE_UNITS / 2 - 1);
     }
   });
 
