@@ -71,6 +71,11 @@ phase - game over simply is attract mode there).
 
 Deliberate deviations, each one commented where it lives:
 
+- The draw distance reaches the rim of the radar. The ROM cut the view at 15,744
+  units, less than half the radar's range, so an enemy sat on the radar for
+  seconds with nothing where the radar said it was and then arrived already in
+  firing range. The MathBox and beam-time budgets that bought that trade do not
+  exist here (`FAR_CLIP_UNITS`, against `ROM_FAR_CLIP_UNITS`).
 - The supertank breaks off its approach when the player fires. Nothing in the
   ROM reacts to the player's shell; the design spec asks for the dodge
   (`SUPERTANK_DODGE_TICKS`).

@@ -784,13 +784,36 @@ export const OBSTACLE_COUNT = OBSTACLES.length;
  * under `0x400 / 2 = 512`.  `docs/reference/original-game.md:447` calls the far
  * plane `$7AFF`, which is that comparison read in doubled units.
  *
- * So the radar sees further than the eye does: an enemy is on the radar from
- * `ENEMY_IN_RANGE_UNITS` (32,768) and can spawn at `ENEMY_SPAWN_FAR_UNITS`
- * (24,575), both beyond this plane.  That is the point of the radar - it tells
- * you something is coming before there is anything to see.
+ * So on the original the radar saw further than the eye did: an enemy is on the
+ * radar from `ENEMY_IN_RANGE_UNITS` (32,768) and can spawn at
+ * `ENEMY_SPAWN_FAR_UNITS` (24,575), both beyond this plane.  `FAR_CLIP_UNITS`
+ * below no longer holds that line; this constant keeps the ROM's own figure.
  */
+export const ROM_FAR_CLIP_UNITS = 0x7b00 / 2;
+
 export const NEAR_CLIP_UNITS = 512;
-export const FAR_CLIP_UNITS = 0x7b00 / 2;
+
+/**
+ * DEVIATION: the draw distance, opened out from `ROM_FAR_CLIP_UNITS` (15,744) to
+ * the rim of the radar.
+ *
+ * The 1980 cabinet had a reason to cut the view at less than half the radar's
+ * range - the MathBox had a fixed budget of objects it could rotate in a frame,
+ * and the vector generator a fixed budget of beam time - and a reason to make a
+ * virtue of it, since a blip with nothing under it is a good scare.  Neither
+ * budget exists here: the battlefield holds `OBSTACLE_COUNT` obstacles in total
+ * and a handful of units, so drawing every one of them costs a few hundred line
+ * segments a frame.
+ *
+ * What is left is the play, and the ROM's draw distance is hostile to it on a
+ * modern display: an enemy sits on the radar for seconds with nothing where the
+ * radar says it is, then materialises already in firing range.  Pushing the
+ * plane out to `ENEMY_IN_RANGE_UNITS` means the radar and the eye agree -
+ * anything the radar knows about can be looked at.  The depth cue still does its
+ * work at that distance (an object at the rim is drawn at about half intensity,
+ * well above `DEPTH_CUE_MIN_INTENSITY`), so far still reads as far.
+ */
+export const FAR_CLIP_UNITS = ENEMY_IN_RANGE_UNITS;
 
 /** Half field of view: the |Y'| < X' test is exactly 45 degrees. */
 export const HALF_FOV_DEGREES = 45;

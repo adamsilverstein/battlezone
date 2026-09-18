@@ -300,6 +300,7 @@ describe('constants', () => {
       'DEFAULT_HIGH_SCORE',
       'NEAR_CLIP_UNITS',
       'FAR_CLIP_UNITS',
+      'ROM_FAR_CLIP_UNITS',
       'HALF_FOV_DEGREES',
       'SCREEN_SCALE',
       'CRACK_GROUPS',
