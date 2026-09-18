@@ -210,8 +210,30 @@ export const MOVE_STEP_UNITS = 95;
 export const PLAYER_FULL_SPEED_STEPS = 2;
 export const PLAYER_HALF_SPEED_STEPS = 1;
 
-/** Top speed in world units per second: 2 * 95 * 15.625. */
-export const PLAYER_SPEED_UNITS_PER_SEC = PLAYER_FULL_SPEED_STEPS * MOVE_STEP_UNITS * TICK_HZ;
+/**
+ * DEVIATION: the player's own step is half again the ROM's.
+ *
+ * `MOVE_STEP_UNITS` is shared - the enemy tank, the supertank and the missile
+ * all still move by it, and their speeds are ROM-faithful - so the change lives
+ * here, on the player alone, and the difficulty ladder is untouched.
+ *
+ * At the ROM's 2,969 units per second a player cannot get out from under an
+ * aimed shot: the shell crosses the ground 10 times faster, and a tank whose
+ * shell is already in the air has more or less won.  Half again as fast is
+ * enough to break a lock by driving across it and still slow enough that an
+ * obstacle is cover rather than scenery.
+ *
+ * Only the translation changes.  The turn rate stays at `PLAYER_PIVOT_STEPS` /
+ * `PLAYER_TURN_STEPS`, so the tank handles the way it did.
+ */
+export const PLAYER_SPEED_MULTIPLIER = 1.5;
+
+/** The player's move step: `MOVE_STEP_UNITS` at `PLAYER_SPEED_MULTIPLIER`. */
+export const PLAYER_MOVE_STEP_UNITS = MOVE_STEP_UNITS * PLAYER_SPEED_MULTIPLIER;
+
+/** Top speed in world units per second: 2 * 142.5 * 15.625. */
+export const PLAYER_SPEED_UNITS_PER_SEC =
+  PLAYER_FULL_SPEED_STEPS * PLAYER_MOVE_STEP_UNITS * TICK_HZ;
 
 // --------------------------------------------------------------------------- //
 // Shells
@@ -572,6 +594,32 @@ export const RADAR_BLIP_BRIGHTNESS = 0xf0;
 export const RADAR_BLIP_DECAY = 8;
 
 /**
+ * DEVIATION: shells in the air are drawn on the radar too.  `DRADAR` knows only
+ * about the nearest enemy unit; a shell has no blip byte and never reaches the
+ * display.
+ *
+ * On the cabinet that was survivable, because the cabinet let you hear a shot
+ * coming.  Here it leaves the player dodging on nothing.  A shell lives 2.03 s
+ * and the sweep takes 1.49 s to come round, so a sweep-gated dot would be dark
+ * for most of the flight - these are drawn straight from the world every frame
+ * and hold no level of their own, which also means `RadarBlips` stays the
+ * enemy's.
+ *
+ * Both sides' shells show, on the ROM's 0..255 intensity scale and each drawn
+ * once rather than the blip's twice.  Incoming fire is the brighter of the two;
+ * the player's own shot is faint, there to be followed rather than watched for.
+ *
+ * These are steady levels, and the enemy blip's is not: `RADAR_BLIP_BRIGHTNESS`
+ * decays `RADAR_BLIP_DECAY` a tick over a sweep revolution of
+ * `RADAR_SWEEP_TICKS_PER_REV`.  The blip is the brighter mark when the sweep has
+ * just lit it and dimmer than an incoming shell for roughly the last 40% of the
+ * revolution, so the two read as different kinds of thing - a return that
+ * pulses, and a track that does not - rather than as a fixed ranking.
+ */
+export const RADAR_ENEMY_SHELL_INTENSITY = 0xc0;
+export const RADAR_PLAYER_SHELL_INTENSITY = 0x60;
+
+/**
  * Radar range, and the "ENEMY IN RANGE" distance - the same test.  `TDIST` is
  * the high byte of the MathBox distance; when it is 0x80 or more the enemy is
  * out of range: no blip is drawn, `EIRNGE` is cleared, and the message and
@@ -784,13 +832,44 @@ export const OBSTACLE_COUNT = OBSTACLES.length;
  * under `0x400 / 2 = 512`.  `docs/reference/original-game.md:447` calls the far
  * plane `$7AFF`, which is that comparison read in doubled units.
  *
- * So the radar sees further than the eye does: an enemy is on the radar from
- * `ENEMY_IN_RANGE_UNITS` (32,768) and can spawn at `ENEMY_SPAWN_FAR_UNITS`
- * (24,575), both beyond this plane.  That is the point of the radar - it tells
- * you something is coming before there is anything to see.
+ * So on the original the radar saw further than the eye did: an enemy is on the
+ * radar from `ENEMY_IN_RANGE_UNITS` (32,768) and can spawn at
+ * `ENEMY_SPAWN_FAR_UNITS` (24,575), both beyond this plane.  `FAR_CLIP_UNITS`
+ * below no longer holds that line; this constant keeps the ROM's own figure.
  */
+export const ROM_FAR_CLIP_UNITS = 0x7b00 / 2;
+
 export const NEAR_CLIP_UNITS = 512;
-export const FAR_CLIP_UNITS = 0x7b00 / 2;
+
+/**
+ * DEVIATION: the draw distance, opened out from `ROM_FAR_CLIP_UNITS` (15,744) to
+ * the rim of the radar.
+ *
+ * The 1980 cabinet had a reason to cut the view at less than half the radar's
+ * range - the MathBox had a fixed budget of objects it could rotate in a frame,
+ * and the vector generator a fixed budget of beam time - and a reason to make a
+ * virtue of it, since a blip with nothing under it is a good scare.  Neither
+ * budget exists here: the battlefield holds `OBSTACLE_COUNT` obstacles in total
+ * and a handful of units, so drawing every one of them costs a few hundred line
+ * segments a frame.
+ *
+ * What is left is the play, and the ROM's draw distance is hostile to it on a
+ * modern display: an enemy sits on the radar for seconds with nothing where the
+ * radar says it is, then materialises already in firing range.  Pushing the
+ * plane out to `ENEMY_IN_RANGE_UNITS` means the radar and the eye agree -
+ * anything the radar knows about can be looked at.  The depth cue still does its
+ * work at that distance (an object at the rim is drawn at about half intensity,
+ * well above `DEPTH_CUE_MIN_INTENSITY`), so far still reads as far.
+ *
+ * Two consequences worth knowing about.  `ENEMY_IN_RANGE_UNITS` is `WORLD_SIZE /
+ * 2`, the largest separation `wrapCoordinate` can return, so the far plane no
+ * longer rejects anything by distance and `objectInView` is in practice a test
+ * of whether a thing is in front of the eye.  And both spawn distances are now
+ * inside the view, so a unit arriving at `ENEMY_SPAWN_FAR_UNITS` appears out of
+ * empty ground rather than over the horizon - `ENEMY_SPAWN_NEAR_UNITS` was
+ * already inside the ROM's own plane and did this, but it is more visible now.
+ */
+export const FAR_CLIP_UNITS = ENEMY_IN_RANGE_UNITS;
 
 /** Half field of view: the |Y'| < X' test is exactly 45 degrees. */
 export const HALF_FOV_DEGREES = 45;

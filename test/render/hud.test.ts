@@ -8,6 +8,8 @@ import {
   RADAR_BLIP_BRIGHTNESS,
   RADAR_BLIP_DECAY,
   RADAR_CENTRE,
+  RADAR_ENEMY_SHELL_INTENSITY,
+  RADAR_PLAYER_SHELL_INTENSITY,
   RADAR_RADIUS,
   RETICLE_BLINK_TICKS,
   SCREEN_HALF_HEIGHT,
@@ -198,6 +200,79 @@ describe('drawRadar', () => {
   it('draws no blip for a dead enemy', () => {
     const enemy = tankAt(1000, 1000, { alive: false });
     expect(dots(radar(worldWith({ enemies: [enemy] })))).toHaveLength(0);
+  });
+});
+
+describe('drawRadar shells', () => {
+  const shellAt = (x: number, z: number, parts: Partial<Shell> = {}): Shell => ({
+    ...playerShell,
+    pos: { x, z },
+    ...parts,
+  });
+
+  it('puts a shell at its own bearing and range', () => {
+    const shell = shellAt(ENEMY_IN_RANGE_UNITS / 2, 0, { owner: 'enemy' });
+    const dot = dots(radar(worldWith({ shells: [shell] })));
+    // One pass, not the enemy blip's two: a shell is a lighter mark.
+    expect(dot).toHaveLength(1);
+    expect(round(dot[0]!.x0)).toBe(round(CX + RADAR_RADIUS / 2));
+    expect(round(dot[0]!.y0)).toBe(round(CY));
+  });
+
+  it('does not wait for the sweep to come round', () => {
+    // A shell lives about two seconds and the sweep takes one and a half, so a
+    // sweep-gated dot would be missing exactly when it mattered.  These are
+    // drawn from the world every frame and hold no level of their own.
+    const shell = shellAt(0, ENEMY_IN_RANGE_UNITS / 2, { owner: 'enemy' });
+    const world = worldWith({ shells: [shell], radarAngle: 0 });
+    const fresh = record((d) => drawRadar(d, world, createRadarBlips()));
+    expect(dots(fresh)).toHaveLength(1);
+  });
+
+  it("draws an incoming shell brighter than the player's own", () => {
+    const incoming = dots(radar(worldWith({ shells: [shellAt(1000, 0, { owner: 'enemy' })] })));
+    const outgoing = dots(radar(worldWith({ shells: [shellAt(1000, 0, { owner: 'player' })] })));
+    expect(incoming[0]!.intensity).toBeCloseTo(RADAR_ENEMY_SHELL_INTENSITY / INTENSITY_BYTE_MAX, 6);
+    expect(outgoing[0]!.intensity).toBeCloseTo(
+      RADAR_PLAYER_SHELL_INTENSITY / INTENSITY_BYTE_MAX,
+      6,
+    );
+    expect(outgoing[0]!.intensity).toBeLessThan(incoming[0]!.intensity);
+  });
+
+  it('turns shells with the player, as it turns the enemy blip', () => {
+    const shell = shellAt(0, ENEMY_IN_RANGE_UNITS / 2, { owner: 'enemy' });
+    const player = { ...createAttractWorld().player, heading: TAU / 4 };
+    const dot = dots(radar(worldWith({ shells: [shell], player })))[0]!;
+    expect(round(dot.x0)).toBe(round(CX - RADAR_RADIUS / 2));
+    expect(round(dot.y0)).toBe(round(CY));
+  });
+
+  it('draws nothing for a shell past the rim', () => {
+    const shell = shellAt(ENEMY_IN_RANGE_UNITS, 0, { owner: 'enemy' });
+    expect(dots(radar(worldWith({ shells: [shell] })))).toHaveLength(0);
+  });
+
+  it('draws shells alongside the enemy blip, not instead of it', () => {
+    // The enemy blip gives up early in several ways - no unit, out of range, a
+    // level that has faded out - and the shells must survive every one of them.
+    const enemy = tankAt(ENEMY_IN_RANGE_UNITS / 2, 0);
+    const shell = shellAt(-ENEMY_IN_RANGE_UNITS / 4, 0, { owner: 'enemy' });
+    const world = worldWith({ enemies: [enemy], shells: [shell], radarAngle: TAU / 4 });
+    // Sweep on the enemy: two blip passes plus the one shell dot.
+    expect(dots(radar(world))).toHaveLength(3);
+    // Sweep nowhere near it, so the enemy blip was never lit: the shell remains.
+    const dark = worldWith({ enemies: [enemy], shells: [shell], radarAngle: 0 });
+    expect(dots(radar(dark))).toHaveLength(1);
+  });
+
+  it('draws every shell in the air', () => {
+    const shells = [
+      shellAt(1000, 0, { id: 1, owner: 'enemy' }),
+      shellAt(-1000, 0, { id: 2, owner: 'enemy' }),
+      shellAt(0, 1000, { id: 3, owner: 'player' }),
+    ];
+    expect(dots(radar(worldWith({ shells })))).toHaveLength(3);
   });
 });
 

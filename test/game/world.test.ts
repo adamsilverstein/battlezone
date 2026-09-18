@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   DEFAULT_OPTIONS,
-  MOVE_STEP_UNITS,
+  PLAYER_MOVE_STEP_UNITS,
   OBSTACLE_COUNT,
   PLAYER_OBSTACLE_RADIUS,
   RADAR_SWEEP_PER_TICK,
@@ -75,7 +75,7 @@ describe('updateWorld', () => {
     const world = createWorld(createRng(1));
     updateWorld(world, sticks(1, 1), createRng(1));
     expect(world.tick).toBe(1);
-    expect(world.player.pos.z).toBeCloseTo(2 * MOVE_STEP_UNITS, 9);
+    expect(world.player.pos.z).toBeCloseTo(2 * PLAYER_MOVE_STEP_UNITS, 9);
   });
 
   it('fires while the trigger is held, one shell at a time', () => {

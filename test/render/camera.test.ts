@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEPTH_CUE_MIN_INTENSITY,
+  ENEMY_IN_RANGE_UNITS,
   EYE_HEIGHT_UNITS,
   FAR_CLIP_UNITS,
   NEAR_CLIP_UNITS,
+  ROM_FAR_CLIP_UNITS,
   SCREEN_HALF_HEIGHT,
   SCREEN_SCALE,
   VIEW_WINDOW,
@@ -107,6 +109,27 @@ describe('projectSegment', () => {
     const seg = projectSegment(cam, { x: 0, y: 0, z: 4000 }, { x: 0, y: -200000, z: 4000 })!;
     expect(seg).not.toBeNull();
     expect(Math.min(seg.y0, seg.y1)).toBeCloseTo(-SCREEN_HALF_HEIGHT, 6);
+  });
+});
+
+describe('draw distance', () => {
+  it('reaches the rim of the radar', () => {
+    // The ROM's own far plane sat at less than half the radar's range, so a tank
+    // could sit on the radar with nothing to see where the radar said it was.
+    // The recreation opens the view out to the rim: everything the radar knows
+    // about can be looked at.
+    expect(FAR_CLIP_UNITS).toBe(ENEMY_IN_RANGE_UNITS);
+    expect(FAR_CLIP_UNITS).toBeGreaterThan(ROM_FAR_CLIP_UNITS);
+  });
+
+  it('still shows an object at the rim, dimly', () => {
+    // Opening the view out is only worth anything if what arrives is visible.
+    // The depth cue is subtracted from intensity and floored, so the question is
+    // whether the rim lands on the floor - a flat grey wall of shapes - or above
+    // it, where distance still reads as distance.
+    const atRim = depthIntensity(1, ENEMY_IN_RANGE_UNITS - 1);
+    expect(atRim).toBeGreaterThan(DEPTH_CUE_MIN_INTENSITY / 0xff);
+    expect(atRim).toBeLessThan(depthIntensity(1, ROM_FAR_CLIP_UNITS));
   });
 });
 

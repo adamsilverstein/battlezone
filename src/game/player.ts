@@ -21,8 +21,10 @@
  * The important consequence is that **one stick curves, it does not pivot**: the
  * tank turns towards the idle tread and drives at the same time.  Spinning on the
  * spot needs the sticks in opposite directions.  Each turn is 1/512 of a turn and
- * each move `MOVE_STEP_UNITS`, both per tick, so the tank turns 11 deg/s while
- * curving, 22 deg/s pivoting, and tops out at about 2970 units/s.
+ * each move `PLAYER_MOVE_STEP_UNITS`, both per tick, so the tank turns 11 deg/s
+ * while curving, 22 deg/s pivoting, and tops out at about 4450 units/s - half
+ * again the ROM's 2970, which is the one deliberate departure here and is argued
+ * at `PLAYER_SPEED_MULTIPLIER`.
  *
  * BLOCKING
  * --------
@@ -33,7 +35,7 @@
  */
 
 import {
-  MOVE_STEP_UNITS,
+  PLAYER_MOVE_STEP_UNITS,
   PLAYER_FULL_SPEED_STEPS,
   PLAYER_HALF_SPEED_STEPS,
   PLAYER_OBSTACLE_RADIUS,
@@ -98,15 +100,20 @@ export function updatePlayer(world: World, input: InputState): GameEvent[] {
 
   if (moveSteps === 0) {
     state.playerBlocked = false;
+    state.playerStepDelta = { x: 0, z: 0 };
     return [];
   }
 
   const before = { ...player.pos };
-  const distance = moveSteps * MOVE_STEP_UNITS;
-  player.pos = {
-    x: wrapCoordinate(before.x + distance * Math.sin(player.heading)),
-    z: wrapCoordinate(before.z + distance * Math.cos(player.heading)),
+  const distance = moveSteps * PLAYER_MOVE_STEP_UNITS;
+  // Kept unwrapped: the shell test walks it back to find where the player was
+  // part way through the tick, and a wrapped delta would send them round the
+  // world instead of back down their own tracks.
+  const delta = {
+    x: distance * Math.sin(player.heading),
+    z: distance * Math.cos(player.heading),
   };
+  player.pos = { x: wrapCoordinate(before.x + delta.x), z: wrapCoordinate(before.z + delta.z) };
 
   // An enemy tank is as solid as a pyramid: `OBJOBJ` runs its tank-versus-tank test
   // for the player too, so driving into one stops the tank rather than passing
@@ -118,10 +125,12 @@ export function updatePlayer(world: World, input: InputState): GameEvent[] {
 
   if (!blocked) {
     state.playerBlocked = false;
+    state.playerStepDelta = delta;
     return [];
   }
 
   player.pos = before;
+  state.playerStepDelta = { x: 0, z: 0 };
   const wasBlocked = state.playerBlocked;
   state.playerBlocked = true;
   return wasBlocked ? [] : [{ type: 'motionBlocked' }];

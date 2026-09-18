@@ -28,6 +28,8 @@ import {
   RADAR_BLIP_DECAY,
   RADAR_BLIP_WINDOW,
   RADAR_CENTRE,
+  RADAR_ENEMY_SHELL_INTENSITY,
+  RADAR_PLAYER_SHELL_INTENSITY,
   RADAR_RADIUS,
   RADAR_SWEEP_PER_TICK,
   RETICLE_BLINK_TICKS,
@@ -38,7 +40,7 @@ import { LIVES_TANK, RADAR, RETICLE_LOCKED, RETICLE_NORMAL } from '../data/pictu
 import { wrapAngle } from '../engine/math';
 import { bearingTo, nearestEnemyUnit, octagonalDistance } from '../game/collision';
 import { playerShellInFlight } from '../game/shells';
-import type { World } from '../game/types';
+import type { Shell, Vec2, World } from '../game/types';
 import { SCORE_DIGITS, drawMessage, drawPicture, message, scoreDigits } from './messages';
 import type { VectorDisplay } from './vectorDisplay';
 
@@ -144,10 +146,65 @@ export function createRadarBlips(): RadarBlips {
 }
 
 /**
- * The radar: the static `RDRING` art, the sweep line at `world.radarAngle` and the
- * enemy blip.  Everything is player-relative - the view wedge always points up
- * the screen - and the sweep and the blip bearing are measured clockwise from
- * there, which is why the player's heading is subtracted rather than added.
+ * Where on the radar face a thing at `pos` in the world belongs, or null when it
+ * is past the rim.
+ *
+ * Range and bearing come from `game/collision.ts`, the same octagonal distance
+ * and torus-aware bearing the simulation's range alert and reticle lock use, so
+ * a mark goes dark exactly where the alert does.  Out of radar range is the same
+ * test as the alert: TDIST >= 0x80.
+ */
+function radarMark(world: World, pos: Vec2): readonly [number, number] | null {
+  const range = octagonalDistance(world.player.pos, pos);
+  if (range >= ENEMY_IN_RANGE_UNITS) return null;
+  const bearing = wrapAngle(bearingTo(world.player.pos, pos) - world.player.heading);
+  return radarPoint((RADAR_RADIUS * range) / ENEMY_IN_RANGE_UNITS, bearing);
+}
+
+/** The enemy blip: `DRADAR`'s own dot, at the level `blips` is holding for it. */
+function drawEnemyBlip(d: VectorDisplay, world: World, blips: RadarBlips): void {
+  // `nearestEnemyUnit` is the same choice the range alert, the reticle lock and
+  // the blip ping in the simulation make - the nearest live unit that is not the
+  // saucer - so the blip can never be tracking a different tank from the one
+  // "ENEMY IN RANGE" is lit for.
+  const target = nearestEnemyUnit(world);
+  if (!target) return;
+  const point = radarMark(world, target.pos);
+  if (!point) return;
+  const level = blips.levelFor(target.id);
+  if (level <= 0) return;
+  // `DRADAR` emits the point twice so the beam dwells on it and the phosphor
+  // comes up brighter than a single pass would leave it (original-game.md:127).
+  // On a canvas the second pass composites over the first, which is the same
+  // bargain: one dot, drawn harder.
+  d.polyline([point], level / INTENSITY_BYTE_MAX);
+  d.polyline([point], level / INTENSITY_BYTE_MAX);
+}
+
+/** How brightly a shell of this owner's is marked (see the constants). */
+function shellIntensity(owner: Shell['owner']): number {
+  return owner === 'enemy' ? RADAR_ENEMY_SHELL_INTENSITY : RADAR_PLAYER_SHELL_INTENSITY;
+}
+
+/**
+ * Shells in the air, each a single dimmer pass so it reads as a lighter mark
+ * than the enemy blip beside it.  Nothing is held between frames: the world's
+ * shell list is the whole of the state, which is what keeps these useful over a
+ * flight shorter than the sweep's own period.
+ */
+function drawShellMarks(d: VectorDisplay, world: World): void {
+  for (const shell of world.shells) {
+    const point = radarMark(world, shell.pos);
+    if (point) d.polyline([point], shellIntensity(shell.owner) / INTENSITY_BYTE_MAX);
+  }
+}
+
+/**
+ * The radar: the static `RDRING` art, the sweep line at `world.radarAngle`, the
+ * enemy blip and the shells in the air.  Everything is player-relative - the
+ * view wedge always points up the screen - and the sweep and every bearing are
+ * measured clockwise from there, which is why the player's heading is subtracted
+ * rather than added.
  */
 export function drawRadar(d: VectorDisplay, world: World, blips: RadarBlips): void {
   const [cx, cy] = RADAR_CENTRE;
@@ -157,29 +214,8 @@ export function drawRadar(d: VectorDisplay, world: World, blips: RadarBlips): vo
   const [sx, sy] = radarPoint(RADAR_RADIUS, world.radarAngle);
   d.line(cx, cy, sx, sy, RADAR_SWEEP_INTENSITY);
 
-  // `nearestEnemyUnit` is the same choice the range alert, the reticle lock and
-  // the blip ping in the simulation make - the nearest live unit that is not the
-  // saucer - so the blip can never be tracking a different tank from the one
-  // "ENEMY IN RANGE" is lit for.
-  const target = nearestEnemyUnit(world);
-  if (!target) return;
-  // Range and bearing come from `game/collision.ts`, the same octagonal distance
-  // and torus-aware bearing the simulation's range alert and reticle lock use, so
-  // the blip goes dark exactly where the alert does.
-  const range = octagonalDistance(world.player.pos, target.pos);
-  // Out of radar range is the same test as the range alert: TDIST >= 0x80.
-  if (range >= ENEMY_IN_RANGE_UNITS) return;
-  const bearing = wrapAngle(bearingTo(world.player.pos, target.pos) - world.player.heading);
-  const level = blips.levelFor(target.id);
-  if (level <= 0) return;
-  // `DRADAR` emits the point twice so the beam dwells on it and the phosphor
-  // comes up brighter than a single pass would leave it (original-game.md:127).
-  // On a canvas the second pass composites over the first, which is the same
-  // bargain: one dot, drawn harder.
-  const radius = (RADAR_RADIUS * range) / ENEMY_IN_RANGE_UNITS;
-  const point = radarPoint(radius, bearing);
-  d.polyline([point], level / INTENSITY_BYTE_MAX);
-  d.polyline([point], level / INTENSITY_BYTE_MAX);
+  drawEnemyBlip(d, world, blips);
+  drawShellMarks(d, world);
 }
 
 /**
