@@ -572,6 +572,26 @@ export const RADAR_BLIP_BRIGHTNESS = 0xf0;
 export const RADAR_BLIP_DECAY = 8;
 
 /**
+ * DEVIATION: shells in the air are drawn on the radar too.  `DRADAR` knows only
+ * about the nearest enemy unit; a shell has no blip byte and never reaches the
+ * display.
+ *
+ * On the cabinet that was survivable, because the cabinet let you hear a shot
+ * coming.  Here it leaves the player dodging on nothing.  A shell lives 2.03 s
+ * and the sweep takes 1.49 s to come round, so a sweep-gated dot would be dark
+ * for most of the flight - these are drawn straight from the world every frame
+ * and hold no level of their own, which also means `RadarBlips` stays the
+ * enemy's.
+ *
+ * Both sides' shells show, on the ROM's 0..255 intensity scale and each drawn
+ * once rather than the blip's twice, so a shell reads as a lighter mark than a
+ * tank.  Incoming fire is the brighter of the two; the player's own shot is
+ * faint, there to be followed rather than watched for.
+ */
+export const RADAR_ENEMY_SHELL_INTENSITY = 0xc0;
+export const RADAR_PLAYER_SHELL_INTENSITY = 0x60;
+
+/**
  * Radar range, and the "ENEMY IN RANGE" distance - the same test.  `TDIST` is
  * the high byte of the MathBox distance; when it is 0x80 or more the enemy is
  * out of range: no blip is drawn, `EIRNGE` is cleared, and the message and
