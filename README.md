@@ -85,6 +85,18 @@ Deliberate deviations, each one commented where it lives:
   own and both drawn at a steady level rather than the enemy blip's decaying
   pulse. `DRADAR` knows only about the nearest enemy unit, and drew nothing for
   a shell (`RADAR_ENEMY_SHELL_INTENSITY`).
+- The arrival is no longer a free shot. In the ROM a tank appears pointed
+  straight back down its own bearing, so it needs no turn at all before it may
+  fire, and half of them appear at 12,287 units - barely a third of the way to
+  the horizon now that the draw distance reaches the radar rim. Four numbers
+  answer that: the near spawn moves out to half the radar's range
+  (`ENEMY_SPAWN_NEAR_UNITS`), the hull is scattered up to 90 degrees off its aim
+  so the player watches it swing round (`ENEMY_SPAWN_HEADING_SCATTER`), the
+  firing grace grows from 2.05 seconds to 3 (`ENEMY_FIRE_GRACE_TICKS`), and the
+  beginner handicap holds until 10,000 points rather than 2,000
+  (`ROOKIE_FIRE_MAX_SCORE`). The goal heading still points at the player and the
+  aggression ladder past 10,000 is untouched, so this eases the opening, not the
+  whole game. Missiles keep the ROM's straight-in approach.
 - The supertank breaks off its approach when the player fires. Nothing in the
   ROM reacts to the player's shell; the design spec asks for the dodge
   (`SUPERTANK_DODGE_TICKS`).

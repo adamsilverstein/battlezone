@@ -359,8 +359,17 @@ export const ENEMY_EVADE_REVERSE_CHANCE = 8;
 /** `R.RAND` nudges the goal heading by a random amount masked to 0x1F (BZONE.MAC.txt:6111-6131). */
 export const ENEMY_RANDOM_GOAL_MASK = 0x1f;
 
-/** The beginner fire handicap is lifted once the score reaches 2000 (BZONE.MAC.txt:6167-6187). */
-export const ROOKIE_FIRE_MAX_SCORE = 2000;
+/**
+ * When the beginner fire handicap is lifted (BZONE.MAC.txt:6167-6187).
+ *
+ * DEVIATION: the ROM lifts it at 2000, which is two slow tanks - a player is out
+ * of the shallow end before they have worked out which stick does what.  Holding
+ * it to 10000 keeps the "only from in front, only from close" rule on for the
+ * first handful of kills and lines the handicap's end up with
+ * `ENEMY_EXPERT_SCORE`, where the ladder goes to expert anyway.
+ */
+export const ROM_ROOKIE_FIRE_MAX_SCORE = 2000;
+export const ROOKIE_FIRE_MAX_SCORE = 10000;
 
 /** The enemy only fires when its heading error is under 2 `TANGLE` units (BZONE.MAC.txt:6201-6207). */
 export const ENEMY_FIRE_ANGLE_TOLERANCE = 2;
@@ -371,8 +380,16 @@ export const ENEMY_FIRE_ANGLE_TOLERANCE = 2;
  * 32 ticks (2.05 s) after it appears (FIREIT, BZONE.MAC.txt:6155-6159), and once
  * FTIMER saturates (255 ticks = 16.3 s) it always attacks (BZONE.MAC.txt:6053-6057).
  */
-export const ENEMY_FIRE_GRACE_TICKS = 0x20;
+export const ROM_ENEMY_FIRE_GRACE_TICKS = 0x20;
 export const ENEMY_FTIMER_MAX = 0xff;
+
+/**
+ * DEVIATION: the grace period is a full 3 seconds here, against the ROM's 2.05.
+ * See `ENEMY_SPAWN_HEADING_SCATTER` for why the arrival needed slowing down; the
+ * extra second covers the swing the scatter forces, so the two together buy the
+ * player the time the ROM's shorter draw distance used to buy them.
+ */
+export const ENEMY_FIRE_GRACE_TICKS = 0x30;
 
 /**
  * Beginner handicaps in FIREIT (BZONE.MAC.txt:6167-6187): while the score is
@@ -444,7 +461,33 @@ export const ENEMY_SPAWN_ANGLE_MASKS = [0x0f, 0x1e, 0x3c, 0x78] as const;
  * (BZONE.MAC.txt:7483-7641, docs/reference/original-game.md section 3).
  */
 export const ENEMY_SPAWN_FAR_UNITS = 0x5fff;
-export const ENEMY_SPAWN_NEAR_UNITS = 0x2fff;
+
+/**
+ * DEVIATION: the near arrival is pushed out to half the radar's range, from the
+ * ROM's 0x2FFF.  With the draw distance now out at `ENEMY_IN_RANGE_UNITS` the old
+ * figure put half of all tanks a little over a third of the way to the horizon, so
+ * they arrived at mid-range silhouette size rather than as a dot - and, on the
+ * narrow early-ladder window, arrived there in front of the player.
+ */
+export const ROM_ENEMY_SPAWN_NEAR_UNITS = 0x2fff;
+/** Half of `ENEMY_IN_RANGE_UNITS`, spelled out: that constant is declared below. */
+export const ENEMY_SPAWN_NEAR_UNITS = 0x4000;
+
+/**
+ * How far off its aim a tank or supertank turns up, in `TANGLE` units either way.
+ *
+ * DEVIATION: `ROB1` heads the arrival straight back down its own bearing, so it
+ * appears already lined up on the player and needs no turn at all before `FIREIT`
+ * will let it shoot - the arrival is a free shot.  Scattering the hull up to 0x40
+ * units (90 degrees) off that line leaves the goal pointing at the player, so it
+ * still comes for them, but it has to swing round first and the player can see it
+ * doing so.  At `ENEMY_PIVOT_STEPS` that swing is up to a second for a tank, half
+ * that for a supertank.  Missiles keep the ROM's behaviour: they are meant to come
+ * straight in.
+ *
+ * ESTIMATE: the ROM has no such scatter, so the 0x40 is this recreation's own.
+ */
+export const ENEMY_SPAWN_HEADING_SCATTER = 0x40;
 
 // --------------------------------------------------------------------------- //
 // Missile ("buzz bomb" / R2D3)

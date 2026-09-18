@@ -11,6 +11,7 @@ import {
   TANGLE_UNIT_RADIANS,
   TANK_TANK_RADIUS,
   TDIST_UNIT,
+  TICK_HZ,
 } from '../../src/data/constants';
 import { wrapAngle } from '../../src/engine/math';
 import { createRng } from '../../src/engine/rng';
@@ -164,6 +165,27 @@ describe('updateTank', () => {
 
     const later = run(world, enemy, 4);
     expect(later).toContainEqual<GameEvent>({ type: 'enemyFired' });
+  });
+
+  it('gives the arrival a full three seconds before its cannon is live', () => {
+    const { world, enemy, brain } = battle({ score: 50000 });
+    brain.ftimer = 0;
+    enemy.heading = bearingTo(enemy.pos, world.player.pos);
+    brain.goal = enemy.heading;
+
+    // Three seconds of ticks, one short of the grace, and still nothing.
+    const early = run(world, enemy, Math.floor(3 * TICK_HZ));
+    expect(early.some((event) => event.type === 'enemyFired')).toBe(false);
+  });
+
+  it('keeps the beginner handicap on well past the first few kills', () => {
+    // Five thousand points - several tanks in - and it still will not shoot the
+    // player in the back.
+    const { world, enemy, brain } = battle({ z: -6000, score: 5000 });
+    world.player.heading = 0;
+    enemy.heading = bearingTo(enemy.pos, world.player.pos);
+    brain.goal = enemy.heading;
+    expect(run(world, enemy, 30).some((event) => event.type === 'enemyFired')).toBe(false);
   });
 
   it('only shoots a beginner from in front and from close range', () => {

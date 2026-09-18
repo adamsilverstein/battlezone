@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_OPTIONS,
+  ENEMY_IN_RANGE_UNITS,
   ENEMY_RESPAWN_TIMOUT,
   ENEMY_SPAWN_ANGLE_MASK,
   ENEMY_SPAWN_ANGLE_MASKS,
   ENEMY_SPAWN_FAR_UNITS,
+  ENEMY_SPAWN_HEADING_SCATTER,
   ENEMY_SPAWN_NEAR_UNITS,
   MISSILE_START_HEIGHT,
   MISSILE_TIMEOUT_TIMOUT,
@@ -175,8 +177,15 @@ describe('updateSpawner', () => {
       const bearing = Math.atan2(spawned.pos.x, spawned.pos.z);
       const window = (ENEMY_SPAWN_ANGLE_MASKS[1]! + 1) * TANGLE_UNIT_RADIANS;
       expect(Math.abs(wrapAngle(bearing - world.player.heading))).toBeLessThanOrEqual(window);
-      // And it turns up looking at the player.
-      expect(Math.abs(wrapAngle(spawned.heading - (bearing + Math.PI)))).toBeLessThan(1e-9);
+      // It no longer turns up already lined up, but it means to attack: the goal
+      // is the bearing back at the player, and the hull is within the scatter of it.
+      const facing = wrapAngle(spawned.heading - (bearing + Math.PI));
+      expect(Math.abs(facing)).toBeLessThanOrEqual(
+        ENEMY_SPAWN_HEADING_SCATTER * TANGLE_UNIT_RADIANS + 1e-9,
+      );
+      expect(Math.abs(wrapAngle(enemyBrain(spawned).goal - (bearing + Math.PI)))).toBeLessThan(
+        1e-9,
+      );
     }
   });
 
@@ -223,6 +232,31 @@ describe('updateSpawner', () => {
     expect(world.enemies).not.toContain(tank);
     // A missile arrives whatever the score is - this one is still on zero.
     expect(events).toContainEqual<GameEvent>({ type: 'enemySpawned', kind: 'missile' });
+  });
+
+  it('keeps every arrival at least half the radar range away', () => {
+    const world = makeWorld();
+    for (let seed = 1; seed <= 40; seed += 1) {
+      const spawned = spawnOne(world, seed);
+      const distance = octagonalDistance(world.player.pos, spawned.pos);
+      expect(distance).toBeGreaterThanOrEqual(ENEMY_IN_RANGE_UNITS / 2);
+    }
+  });
+
+  it('lands the arrival off its aim, so it has to swing round before it can shoot', () => {
+    const world = makeWorld();
+    let widest = 0;
+    for (let seed = 1; seed <= 60; seed += 1) {
+      const spawned = spawnOne(world, seed);
+      if (spawned.kind === 'missile') continue;
+      const bearing = Math.atan2(
+        spawned.pos.x - world.player.pos.x,
+        spawned.pos.z - world.player.pos.z,
+      );
+      widest = Math.max(widest, Math.abs(wrapAngle(spawned.heading - (bearing + Math.PI))));
+    }
+    // Well past the 2 TANGLE units the tank is allowed to fire from.
+    expect(widest).toBeGreaterThan(ENEMY_SPAWN_HEADING_SCATTER * TANGLE_UNIT_RADIANS * 0.5);
   });
 
   it('leaves the saucer out of the one-unit rule', () => {

@@ -32,6 +32,11 @@
  * flip.  Missiles are always released far out and always close to the player's
  * facing.  Nothing checks the obstacles, so an arrival can be standing inside a
  * pyramid; that is the original's behaviour, and it backs itself out.
+ *
+ * Two deliberate deviations live here: the near distance is pushed out to half the
+ * radar's range, and a tank's hull is scattered off the line to the player so the
+ * arrival is not a free shot.  See `ENEMY_SPAWN_NEAR_UNITS` and
+ * `ENEMY_SPAWN_HEADING_SCATTER`.
  */
 
 import {
@@ -40,6 +45,7 @@ import {
   ENEMY_SPAWN_ANGLE_MASK,
   ENEMY_SPAWN_ANGLE_MASKS,
   ENEMY_SPAWN_FAR_UNITS,
+  ENEMY_SPAWN_HEADING_SCATTER,
   ENEMY_SPAWN_NEAR_UNITS,
   MISSILE_START_HEIGHT,
   MISSILE_TIMEOUT_TIMOUT,
@@ -110,6 +116,14 @@ function place(world: World, rng: Rng): GameEvent[] {
   const far = missile || rng.int(2) === 0;
   const distance = far ? ENEMY_SPAWN_FAR_UNITS : ENEMY_SPAWN_NEAR_UNITS;
 
+  // Looking back down its own bearing, at the player.  A tank gets turned off that
+  // line so it has to swing round before `FIREIT` will let it shoot; a missile,
+  // which is supposed to come straight in, does not (`ENEMY_SPAWN_HEADING_SCATTER`).
+  const facing = wrapAngle(bearing + Math.PI);
+  const scatter = missile
+    ? 0
+    : rng.int(ENEMY_SPAWN_HEADING_SCATTER + 1) * (rng.int(2) === 0 ? 1 : -1);
+
   const enemy: Enemy = {
     id: state.nextEnemyId,
     kind,
@@ -117,8 +131,7 @@ function place(world: World, rng: Rng): GameEvent[] {
       x: wrapCoordinate(world.player.pos.x + distance * Math.sin(bearing)),
       z: wrapCoordinate(world.player.pos.z + distance * Math.cos(bearing)),
     },
-    // Looking back down its own bearing, at the player.
-    heading: wrapAngle(bearing + Math.PI),
+    heading: wrapAngle(facing + scatter * TANGLE_UNIT_RADIANS),
     y: missile ? MISSILE_START_HEIGHT : 0,
     alive: true,
     state: missile ? 'swoop' : 'approach',
@@ -127,7 +140,9 @@ function place(world: World, rng: Rng): GameEvent[] {
   };
   state.nextEnemyId += 1;
   world.enemies.push(enemy);
-  enemyBrain(enemy).goal = enemy.heading;
+  // The goal is the player, scatter or no scatter: the arrival still means to
+  // attack, it just has to turn to do it.
+  enemyBrain(enemy).goal = facing;
   // `ROB1` resets `EIRNGE` along with `FTIMER`, so the warning re-arms for the new
   // arrival even when the one it replaced was in range on this very tick
   // (BZONE.MAC.txt:7483-7641, 7989-8015).
