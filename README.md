@@ -76,6 +76,11 @@ Deliberate deviations, each one commented where it lives:
   seconds with nothing where the radar said it was and then arrived already in
   firing range. The MathBox and beam-time budgets that bought that trade do not
   exist here (`FAR_CLIP_UNITS`, against `ROM_FAR_CLIP_UNITS`).
+- The player's tank drives half again as fast as the ROM's
+  (`PLAYER_SPEED_MULTIPLIER`). Its turn rate is unchanged, and so are the enemy
+  speeds, which still come off the shared ROM step. At the original speed an
+  aimed shot is close to unavoidable: the shell crosses the ground ten times
+  faster than the tank does.
 - Shells in the air show on the radar, incoming fire brighter than the player's
   own. `DRADAR` knows only about the nearest enemy unit, and drew nothing for a
   shell (`RADAR_ENEMY_SHELL_INTENSITY`).

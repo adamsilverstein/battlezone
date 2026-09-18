@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   MOVE_STEP_UNITS,
+  PLAYER_MOVE_STEP_UNITS,
   PLAYER_OBSTACLE_RADIUS,
+  PLAYER_SPEED_MULTIPLIER,
   TANK_TANK_RADIUS,
   TURN_STEP_DEGREES,
   WORLD_SIZE,
@@ -18,24 +20,41 @@ describe('updatePlayer tread kinematics', () => {
   it('drives forward along the heading with both sticks forward', () => {
     const world = makeWorld();
     const events = updatePlayer(world, sticks(1, 1));
-    expect(world.player.pos).toEqual({ x: 0, z: 2 * MOVE_STEP_UNITS });
+    expect(world.player.pos).toEqual({ x: 0, z: 2 * PLAYER_MOVE_STEP_UNITS });
     expect(world.player.heading).toBe(0);
     expect(world.player.moving).toBe(true);
     expect(world.player.turning).toBe(false);
     expect(events).toEqual([]);
   });
 
+  it('drives half again as far as the ROM tank did, and turns no faster', () => {
+    // MOVE_STEP_UNITS is the ROM's step and every enemy still moves by it (see
+    // the tank, supertank and missile suites), so the player's own step being
+    // PLAYER_SPEED_MULTIPLIER times that is the whole of the speed change.
+    expect(PLAYER_MOVE_STEP_UNITS).toBeCloseTo(PLAYER_SPEED_MULTIPLIER * MOVE_STEP_UNITS, 9);
+
+    const world = makeWorld();
+    updatePlayer(world, sticks(1, 1));
+    expect(world.player.pos.z).toBeCloseTo(PLAYER_SPEED_MULTIPLIER * 2 * MOVE_STEP_UNITS, 9);
+
+    // The treads translate faster; they do not rotate faster. A pivot is the
+    // ROM's two turn steps either way.
+    const pivot = makeWorld();
+    updatePlayer(pivot, sticks(1, -1));
+    expect(pivot.player.heading).toBeCloseTo(2 * TURN_STEP, 12);
+  });
+
   it('reverses at the same speed with both sticks back', () => {
     const world = makeWorld();
     updatePlayer(world, sticks(-1, -1));
-    expect(world.player.pos).toEqual({ x: 0, z: -2 * MOVE_STEP_UNITS });
+    expect(world.player.pos).toEqual({ x: 0, z: -2 * PLAYER_MOVE_STEP_UNITS });
   });
 
   it('drives along whatever heading it is pointed at', () => {
     const world = makeWorld();
     world.player.heading = Math.PI / 2; // +X, a quarter turn clockwise from +Z.
     updatePlayer(world, sticks(1, 1));
-    expect(world.player.pos.x).toBeCloseTo(2 * MOVE_STEP_UNITS, 9);
+    expect(world.player.pos.x).toBeCloseTo(2 * PLAYER_MOVE_STEP_UNITS, 9);
     expect(world.player.pos.z).toBeCloseTo(0, 9);
   });
 
@@ -61,8 +80,8 @@ describe('updatePlayer tread kinematics', () => {
     const world = makeWorld();
     updatePlayer(world, sticks(1, 0));
     expect(world.player.heading).toBeCloseTo(TURN_STEP, 12);
-    expect(world.player.pos.x).toBeCloseTo(MOVE_STEP_UNITS * Math.sin(TURN_STEP), 9);
-    expect(world.player.pos.z).toBeCloseTo(MOVE_STEP_UNITS * Math.cos(TURN_STEP), 9);
+    expect(world.player.pos.x).toBeCloseTo(PLAYER_MOVE_STEP_UNITS * Math.sin(TURN_STEP), 9);
+    expect(world.player.pos.z).toBeCloseTo(PLAYER_MOVE_STEP_UNITS * Math.cos(TURN_STEP), 9);
     expect(world.player.moving).toBe(true);
     expect(world.player.turning).toBe(true);
   });
@@ -71,14 +90,14 @@ describe('updatePlayer tread kinematics', () => {
     const world = makeWorld();
     updatePlayer(world, sticks(0, 1));
     expect(world.player.heading).toBeCloseTo(-TURN_STEP, 12);
-    expect(world.player.pos.x).toBeCloseTo(MOVE_STEP_UNITS * Math.sin(-TURN_STEP), 9);
+    expect(world.player.pos.x).toBeCloseTo(PLAYER_MOVE_STEP_UNITS * Math.sin(-TURN_STEP), 9);
   });
 
   it('reverses in an arc on one stick back', () => {
     const world = makeWorld();
     updatePlayer(world, sticks(-1, 0));
     expect(world.player.heading).toBeCloseTo(-TURN_STEP, 12);
-    expect(world.player.pos.z).toBeCloseTo(-MOVE_STEP_UNITS * Math.cos(TURN_STEP), 9);
+    expect(world.player.pos.z).toBeCloseTo(-PLAYER_MOVE_STEP_UNITS * Math.cos(TURN_STEP), 9);
 
     const other = makeWorld();
     updatePlayer(other, sticks(0, -1));
@@ -106,9 +125,9 @@ describe('updatePlayer tread kinematics', () => {
 
   it('wraps around the edge of the playfield', () => {
     const world = makeWorld();
-    world.player.pos = { x: 0, z: WORLD_SIZE / 2 - MOVE_STEP_UNITS };
+    world.player.pos = { x: 0, z: WORLD_SIZE / 2 - PLAYER_MOVE_STEP_UNITS };
     updatePlayer(world, sticks(1, 1));
-    expect(world.player.pos.z).toBeCloseTo(-WORLD_SIZE / 2 + MOVE_STEP_UNITS, 6);
+    expect(world.player.pos.z).toBeCloseTo(-WORLD_SIZE / 2 + PLAYER_MOVE_STEP_UNITS, 6);
   });
 });
 
@@ -152,7 +171,7 @@ describe('updatePlayer obstacle blocking', () => {
     expect(events).toEqual<GameEvent[]>([{ type: 'motionBlocked' }]);
     expect(4000 - world.player.pos.z).toBeGreaterThanOrEqual(PLAYER_OBSTACLE_RADIUS);
     expect(4000 - world.player.pos.z).toBeLessThan(
-      PLAYER_OBSTACLE_RADIUS + 2 * MOVE_STEP_UNITS + 1,
+      PLAYER_OBSTACLE_RADIUS + 2 * PLAYER_MOVE_STEP_UNITS + 1,
     );
   });
 });
@@ -208,7 +227,7 @@ describe('updatePlayer against the enemy', () => {
     // OBJOBJ runs its $500 tank-versus-tank test for the player as well, so an
     // enemy tank is as solid as an obstacle.
     const world = makeWorld();
-    world.enemies = [tank(TANK_TANK_RADIUS + MOVE_STEP_UNITS)];
+    world.enemies = [tank(TANK_TANK_RADIUS + PLAYER_MOVE_STEP_UNITS)];
 
     const first = updatePlayer(world, sticks(1, 1));
     expect(first).toEqual<GameEvent[]>([{ type: 'motionBlocked' }]);
@@ -220,12 +239,12 @@ describe('updatePlayer against the enemy', () => {
 
   it('drives on past a tank that is dead, or one still out of contact', () => {
     const world = makeWorld();
-    world.enemies = [{ ...tank(TANK_TANK_RADIUS + MOVE_STEP_UNITS), alive: false }];
+    world.enemies = [{ ...tank(TANK_TANK_RADIUS + PLAYER_MOVE_STEP_UNITS), alive: false }];
     expect(updatePlayer(world, sticks(1, 1))).toEqual([]);
     expect(world.player.pos.z).toBeGreaterThan(0);
 
     const clear = makeWorld();
-    clear.enemies = [tank(TANK_TANK_RADIUS + 4 * MOVE_STEP_UNITS)];
+    clear.enemies = [tank(TANK_TANK_RADIUS + 4 * PLAYER_MOVE_STEP_UNITS)];
     expect(updatePlayer(clear, sticks(1, 1))).toEqual([]);
     expect(clear.player.pos.z).toBeGreaterThan(0);
   });

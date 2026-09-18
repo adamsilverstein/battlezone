@@ -21,8 +21,10 @@
  * The important consequence is that **one stick curves, it does not pivot**: the
  * tank turns towards the idle tread and drives at the same time.  Spinning on the
  * spot needs the sticks in opposite directions.  Each turn is 1/512 of a turn and
- * each move `MOVE_STEP_UNITS`, both per tick, so the tank turns 11 deg/s while
- * curving, 22 deg/s pivoting, and tops out at about 2970 units/s.
+ * each move `PLAYER_MOVE_STEP_UNITS`, both per tick, so the tank turns 11 deg/s
+ * while curving, 22 deg/s pivoting, and tops out at about 4450 units/s - half
+ * again the ROM's 2970, which is the one deliberate departure here and is argued
+ * at `PLAYER_SPEED_MULTIPLIER`.
  *
  * BLOCKING
  * --------
@@ -33,7 +35,7 @@
  */
 
 import {
-  MOVE_STEP_UNITS,
+  PLAYER_MOVE_STEP_UNITS,
   PLAYER_FULL_SPEED_STEPS,
   PLAYER_HALF_SPEED_STEPS,
   PLAYER_OBSTACLE_RADIUS,
@@ -102,7 +104,7 @@ export function updatePlayer(world: World, input: InputState): GameEvent[] {
   }
 
   const before = { ...player.pos };
-  const distance = moveSteps * MOVE_STEP_UNITS;
+  const distance = moveSteps * PLAYER_MOVE_STEP_UNITS;
   player.pos = {
     x: wrapCoordinate(before.x + distance * Math.sin(player.heading)),
     z: wrapCoordinate(before.z + distance * Math.cos(player.heading)),

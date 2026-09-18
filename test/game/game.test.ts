@@ -7,7 +7,6 @@ import {
   INITIALS_LENGTH,
   INITIALS_REPEAT_TICKS,
   PLAYER_OBSTACLE_RADIUS,
-  SHELL_STEPS_PER_TICK,
   SHELL_STEP_UNITS,
   TANK_TANK_RADIUS,
 } from '../../src/data/constants';
@@ -51,19 +50,29 @@ function runUntilPhaseChanges(game: Game, limit = 4096): { phase: GamePhase; tic
   throw new Error(`game stayed in ${from} for ${limit} ticks`);
 }
 
-/** One tick of shell flight, which is what the collision test sweeps over. */
-const SHELL_TICK_UNITS = SHELL_STEP_UNITS * SHELL_STEPS_PER_TICK;
+/**
+ * How far behind the player an executioner's shell starts.
+ *
+ * The player moves before the shells do, so a shell aimed at where the player
+ * stands now arrives at where they no longer are - by as much as
+ * `PLAYER_FULL_SPEED_STEPS * PLAYER_MOVE_STEP_UNITS`, either way, depending on
+ * the sticks.  Two sub-steps back is enough room that one of the four sub-steps
+ * of the coming tick lands inside the hit radius whichever way they drove: the
+ * shell is tested every `SHELL_STEP_UNITS`, so it can never pass a point by more
+ * than half of that without being tested within it.
+ */
+const SHELL_RUN_UP_UNITS = SHELL_STEP_UNITS * 2;
 
 /**
- * Puts an enemy shell exactly one tick of flight short of the player, so the next
- * update flies it into them and the death sequence begins.
+ * Puts an enemy shell just short of the player, so the next update flies it into
+ * them and the death sequence begins.
  */
 function killPlayer(game: Game): GameEvent[] {
   const { world } = game.state;
   world.shells.push({
     id: 9000 + world.tick,
     owner: 'enemy',
-    pos: { x: world.player.pos.x, z: world.player.pos.z - SHELL_TICK_UNITS },
+    pos: { x: world.player.pos.x, z: world.player.pos.z - SHELL_RUN_UP_UNITS },
     y: 0,
     heading: 0,
     ticksLeft: 4,

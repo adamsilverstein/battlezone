@@ -210,8 +210,30 @@ export const MOVE_STEP_UNITS = 95;
 export const PLAYER_FULL_SPEED_STEPS = 2;
 export const PLAYER_HALF_SPEED_STEPS = 1;
 
-/** Top speed in world units per second: 2 * 95 * 15.625. */
-export const PLAYER_SPEED_UNITS_PER_SEC = PLAYER_FULL_SPEED_STEPS * MOVE_STEP_UNITS * TICK_HZ;
+/**
+ * DEVIATION: the player's own step is half again the ROM's.
+ *
+ * `MOVE_STEP_UNITS` is shared - the enemy tank, the supertank and the missile
+ * all still move by it, and their speeds are ROM-faithful - so the change lives
+ * here, on the player alone, and the difficulty ladder is untouched.
+ *
+ * At the ROM's 2,969 units per second a player cannot get out from under an
+ * aimed shot: the shell crosses the ground 10 times faster, and a tank whose
+ * shell is already in the air has more or less won.  Half again as fast is
+ * enough to break a lock by driving across it and still slow enough that an
+ * obstacle is cover rather than scenery.
+ *
+ * Only the translation changes.  The turn rate stays at `PLAYER_PIVOT_STEPS` /
+ * `PLAYER_TURN_STEPS`, so the tank handles the way it did.
+ */
+export const PLAYER_SPEED_MULTIPLIER = 1.5;
+
+/** The player's move step: `MOVE_STEP_UNITS` at `PLAYER_SPEED_MULTIPLIER`. */
+export const PLAYER_MOVE_STEP_UNITS = MOVE_STEP_UNITS * PLAYER_SPEED_MULTIPLIER;
+
+/** Top speed in world units per second: 2 * 142.5 * 15.625. */
+export const PLAYER_SPEED_UNITS_PER_SEC =
+  PLAYER_FULL_SPEED_STEPS * PLAYER_MOVE_STEP_UNITS * TICK_HZ;
 
 // --------------------------------------------------------------------------- //
 // Shells
